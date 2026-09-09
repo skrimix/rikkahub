@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.uuid.Uuid
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.model.MessageDelivery
 import me.rerere.rikkahub.service.MessageQueueState
 import me.rerere.rikkahub.service.QueuedMessage
 import me.rerere.rikkahub.ui.hooks.ChatInputState
@@ -85,7 +86,10 @@ internal fun MessageQueuePanel(
                                 stringResource(R.string.chat_page_queue_video),
                             )
                             Text(
-                                text = "${index + 1}. " + message.parts.joinToString(" ") {
+                                text = "${index + 1}. " + when (message.delivery) {
+                                    MessageDelivery.STEER -> "Steering: "
+                                    MessageDelivery.NEXT_TURN -> "Next turn: "
+                                } + message.parts.joinToString(" ") {
                                     when (it) {
                                         is UIMessagePart.Text -> it.text
                                         is UIMessagePart.Image -> attachmentLabels[0]

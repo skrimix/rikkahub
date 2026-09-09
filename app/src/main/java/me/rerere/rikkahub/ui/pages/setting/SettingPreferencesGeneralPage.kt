@@ -8,11 +8,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,10 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.DisplaySetting
+import me.rerere.rikkahub.data.model.MessageDelivery
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.hooks.rememberSharedPreferenceBoolean
@@ -40,6 +47,7 @@ import kotlin.math.roundToInt
 fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var displaySetting by remember(settings) { mutableStateOf(settings.displaySetting) }
+    var showMessageDeliveryDialog by remember { mutableStateOf(false) }
     var ttsPlaybackSpeed by remember(settings.defaultTTSPlaybackSpeed) {
         mutableFloatStateOf(settings.defaultTTSPlaybackSpeed)
     }
@@ -101,6 +109,16 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                                 }
                             )
                         },
+                    )
+                    item(
+                        headlineContent = { Text("Sending while responding") },
+                        supportingContent = {
+                            Text(when (displaySetting.messageDelivery) {
+                                MessageDelivery.STEER -> "Steer the current response at its next step"
+                                MessageDelivery.NEXT_TURN -> "Queue for a new turn after the response finishes"
+                            })
+                        },
+                        onClick = { showMessageDeliveryDialog = true },
                     )
                     item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_show_message_jumper_title)) },
@@ -337,5 +355,48 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                 }
             }
         }
+    }
+
+    if (showMessageDeliveryDialog) {
+        AlertDialog(
+            onDismissRequest = { showMessageDeliveryDialog = false },
+            title = { Text("Sending while responding") },
+            text = {
+                Column(modifier = Modifier.selectableGroup()) {
+                    MessageDelivery.entries.forEach { delivery ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = displaySetting.messageDelivery == delivery,
+                                    role = Role.RadioButton,
+                                    onClick = {
+                                        updateDisplaySetting(displaySetting.copy(messageDelivery = delivery))
+                                        showMessageDeliveryDialog = false
+                                    },
+                                )
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            RadioButton(
+                                selected = displaySetting.messageDelivery == delivery,
+                                onClick = null,
+                            )
+                            Text(when (delivery) {
+                                MessageDelivery.STEER -> "Steer current response"
+                                MessageDelivery.NEXT_TURN -> "Queue for next turn"
+                            })
+                        }
+                    }
+                    Text("Applies to new messages. Unsent messages stay queued when you stop. Voice messages always queue for a new turn.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMessageDeliveryDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }

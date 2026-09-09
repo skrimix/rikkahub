@@ -5,6 +5,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.data.model.MessageDelivery
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -133,6 +134,27 @@ class QueuedAttachmentCleanupTest {
         assertEquals(
             setOf(video.url),
             unreferencedQueuedAttachmentUrls(removed, emptyList(), listOf(submitting)),
+        )
+    }
+
+    @Test
+    fun `claimed steering attachments survive removing another queued message`() {
+        val queue = MessageQueue()
+        queue.openSteering()
+        queue.enqueue(listOf(image), delivery = MessageDelivery.STEER)
+        queue.claimSteering(closeIfEmpty = false)
+        queue.enqueue(listOf(image, video))
+        val removed = queue.remove(queue.state.value.messages.single().id)!!
+
+        assertEquals(
+            setOf(video.url),
+            unreferencedQueuedAttachmentUrls(removed, emptyList(), queue.pendingMessages()),
+        )
+        queue.pause()
+        queue.releaseClaimedSteering()
+        assertEquals(
+            setOf(video.url),
+            unreferencedQueuedAttachmentUrls(removed, emptyList(), queue.pendingMessages()),
         )
     }
 

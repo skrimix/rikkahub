@@ -163,15 +163,17 @@ fun ChatInput(
     )
 
     fun sendMessage() {
+        if (loading && state.isEditing()) return
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (loading && state.isEmpty()) onCancelClick() else onSendClick()
+        onSendClick()
     }
 
     fun sendMessageWithoutAnswer() {
+        if (loading && state.isEditing()) return
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (loading && state.isEmpty()) onCancelClick() else onLongSendClick()
+        onLongSendClick()
     }
 
     val asr = LocalASRState.current
@@ -364,12 +366,17 @@ fun ChatInput(
                             enter = fadeIn() + scaleIn(),
                             exit = fadeOut() + scaleOut(),
                         ) {
-                            SendButton(
-                                loading = loading,
-                                empty = state.isEmpty(),
-                                onClick = { sendMessage() },
-                                onLongClick = { sendMessageWithoutAnswer() },
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (loading) {
+                                    StopButton(onClick = onCancelClick)
+                                }
+                                SendButton(
+                                    empty = state.isEmpty(),
+                                    enabled = !loading || !state.isEditing(),
+                                    onClick = { sendMessage() },
+                                    onLongClick = { sendMessageWithoutAnswer() },
+                                )
+                            }
                         }
                     }
                 }
@@ -386,21 +393,18 @@ fun ChatInput(
 
 @Composable
 private fun SendButton(
-    loading: Boolean,
     empty: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val showStop = loading && empty
     val containerColor = when {
-        showStop -> MaterialTheme.colorScheme.errorContainer
-        empty -> MaterialTheme.colorScheme.surfaceContainerHigh
+        empty || !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> MaterialTheme.colorScheme.primary
     }
     val contentColor = when {
-        showStop -> MaterialTheme.colorScheme.onErrorContainer
-        empty -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        empty || !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         else -> MaterialTheme.colorScheme.onPrimary
     }
     Box(
@@ -410,7 +414,7 @@ private fun SendButton(
             .testTag("chat_send_button")
             .clip(CircleShape)
             .combinedClickable(
-                enabled = showStop || !empty,
+                enabled = enabled && !empty,
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
@@ -422,11 +426,32 @@ private fun SendButton(
             content = {},
         )
         Icon(
-            imageVector = if (showStop) HugeIcons.Cancel01 else HugeIcons.ArrowUp02,
-            contentDescription = stringResource(if (showStop) R.string.stop else R.string.send),
+            imageVector = HugeIcons.ArrowUp02,
+            contentDescription = stringResource(R.string.send),
             tint = contentColor,
             modifier = Modifier.size(18.dp)
         )
+    }
+}
+
+@Composable
+private fun StopButton(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .size(30.dp)
+            .testTag("chat_stop_button"),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.errorContainer,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = HugeIcons.Cancel01,
+                contentDescription = stringResource(R.string.stop),
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 

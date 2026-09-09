@@ -62,7 +62,10 @@ private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(
 @Serializable
 sealed interface GenerationChunk {
     data class Messages(
-        val messages: List<UIMessage>
+        val messages: List<UIMessage>,
+        val persist: Boolean = false,
+        val notify: Boolean = true,
+        val consumedSteeringIds: Set<Uuid> = emptySet(),
     ) : GenerationChunk
 }
 
@@ -87,13 +90,17 @@ class GenerationLoop(
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
+        takeSteeringMessages: suspend (closeIfEmpty: Boolean) -> List<UIMessage> = { emptyList() },
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
 
         var messages: List<UIMessage> = messages
 
-        for (stepIndex in 0 until maxSteps) {
+        var remainingSteps = maxSteps
+        while (remainingSteps > 0) {
+            val stepIndex = maxSteps - remainingSteps
+            remainingSteps--
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
 
             // Check if we have tool calls ready to continue after user interaction.
@@ -165,8 +172,21 @@ class GenerationLoop(
 
                 val toolCalls = messages.last().getTools().filter { !it.isExecuted }
                 if (toolCalls.isEmpty()) {
-                    // no tool calls, break
-                    break
+                    val steeringMessages = takeSteeringMessages(true)
+                    if (steeringMessages.isEmpty()) {
+                        break
+                    }
+                    messages += steeringMessages
+                    emit(
+                        GenerationChunk.Messages(
+                            messages = messages,
+                            persist = true,
+                            notify = false,
+                            consumedSteeringIds = steeringMessages.mapTo(mutableSetOf()) { it.id },
+                        )
+                    )
+                    remainingSteps = maxSteps
+                    continue
                 }
 
                 // Check for tools that need approval
@@ -212,9 +232,9 @@ class GenerationLoop(
 
                 toolsToProcess = updatedTools
             } else {
-                // Resuming after user interaction - use the resumable tools directly.
-                Log.i(TAG, "generateText: resuming with ${pendingTools.size} resumable tools")
-                toolsToProcess = messages.last().getTools().filter { it.canResumeExecution }
+                // Approval is resumed as one batch, including tools that did not need approval.
+                toolsToProcess = messages.last().getTools().filter { !it.isExecuted }
+                Log.i(TAG, "generateText: resuming with ${toolsToProcess.size} tools")
             }
 
             // Handle tools (execute approved tools, handle denied tools)
@@ -320,6 +340,20 @@ class GenerationLoop(
                     )
                 )
             )
+
+            val steeringMessages = takeSteeringMessages(remainingSteps == 0)
+            if (steeringMessages.isNotEmpty()) {
+                messages += steeringMessages
+                emit(
+                    GenerationChunk.Messages(
+                        messages = messages,
+                        persist = true,
+                        notify = false,
+                        consumedSteeringIds = steeringMessages.mapTo(mutableSetOf()) { it.id },
+                    )
+                )
+                remainingSteps = maxSteps
+            }
         }
 
     }.flowOn(Dispatchers.IO)

@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -224,6 +225,8 @@ class ChatService(
                             message.parts.any { it is UIMessagePart.Tool && it.isPending }
                         } == true) {
                         session.messageQueue.failReplyWaiters(context.getString(R.string.chat_page_voice_tool_approval))
+                    } else {
+                        session?.messageQueue?.closeSteering()
                     }
                     appScope.launch { dispatchNextQueuedMessage(id) }
                 },
@@ -381,7 +384,7 @@ class ChatService(
                     previous = previous,
                     conversations = currentSessions.map { it.state.value },
                     pendingMessages = currentSessions.flatMap {
-                        it.messageQueue.state.value.messages + listOfNotNull(it.submittingMessage)
+                        it.messageQueue.pendingMessages() + listOfNotNull(it.submittingMessage)
                     },
                 ) - persistedReferences
                 if (unusedFiles.isNotEmpty()) {
@@ -404,8 +407,12 @@ class ChatService(
         if (content.isEmptyInputMessage()) return
         val session = getOrCreateSession(conversationId)
         synchronized(session) {
-            if (session.messageQueue.state.value.messages.isEmpty()) session.messageQueue.resume()
-            session.messageQueue.enqueue(content, answer)
+            if (session.messageQueue.pendingMessages().isEmpty()) session.messageQueue.resume()
+            session.messageQueue.enqueue(
+                parts = content,
+                answer = answer,
+                delivery = settingsStore.settingsFlow.value.displaySetting.messageDelivery,
+            )
             dispatchNextQueuedMessage(conversationId)
         }
     }
@@ -416,13 +423,13 @@ class ChatService(
         val reply = CompletableDeferred<String?>()
         synchronized(session) {
             check(text.isNotBlank()) { context.getString(R.string.chat_page_voice_empty) }
-            check(!session.messageQueue.state.value.paused || session.messageQueue.state.value.messages.isEmpty()) {
+            check(!session.messageQueue.state.value.paused || session.messageQueue.pendingMessages().isEmpty()) {
                 context.getString(R.string.chat_page_voice_resume_queue)
             }
             check(session.state.value.currentMessages.none { message ->
                 message.parts.any { it is UIMessagePart.Tool && it.isPending }
             }) { context.getString(R.string.chat_page_voice_tools_before_resume) }
-            if (session.messageQueue.state.value.messages.isEmpty()) session.messageQueue.resume()
+            if (session.messageQueue.pendingMessages().isEmpty()) session.messageQueue.resume()
             session.messageQueue.enqueue(listOf(UIMessagePart.Text(text)), reply = reply)
             dispatchNextQueuedMessage(conversationId)
         }
@@ -532,6 +539,7 @@ class ChatService(
     ) = synchronized(getOrCreateSession(conversationId)) {
         val session = getOrCreateSession(conversationId)
         val previousJob = session.getJob()
+        session.messageQueue.closeSteering()
 
         val job = launchGenerationJob(
             conversationId = conversationId,
@@ -539,6 +547,7 @@ class ChatService(
         ) {
             try {
                 previousJob?.join()
+                session.messageQueue.releaseClaimedSteering()
                 val conversation = session.state.value
 
                 if (message.role == MessageRole.USER) {
@@ -657,12 +666,16 @@ class ChatService(
         conversationId: Uuid,
         messageRange: ClosedRange<Int>? = null
     ) {
+        val session = getOrCreateSession(conversationId)
         val settings = settingsStore.settingsFlow.first()
         val initialConversation = getConversationFlow(conversationId).value
         val assistant = settings.getAssistantById(initialConversation.assistantId)
             ?: settings.getCurrentAssistant()
         val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId)
-            ?: throw IllegalStateException("No chat model selected")
+            ?: run {
+                session.messageQueue.pause()
+                throw IllegalStateException("No chat model selected")
+            }
 
         val senderName = if (assistant.useAssistantAvatar) {
             assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
@@ -699,7 +712,7 @@ class ChatService(
                     workspaceCwd = conversation.workspaceCwd,
                 )
             } catch (error: InvalidMcpServerNamesException) {
-                sessions[conversationId]?.messageQueue?.pause()
+                session.messageQueue.pause()
                 addError(
                     error = IllegalStateException(
                         context.getString(
@@ -712,8 +725,8 @@ class ChatService(
                 return
             }
 
-            // start generating
-            val session = getOrCreateSession(conversationId)
+            // Historical regeneration must not consume new input into an older branch.
+            if (messageRange == null) session.messageQueue.openSteering()
             generationLoop.generateText(
                 settings = settings,
                 model = model,
@@ -731,6 +744,19 @@ class ChatService(
                 conversationModeInjectionIds = conversation.modeInjectionIds,
                 conversationLorebookIds = conversation.lorebookIds,
                 workspaceCwd = conversation.workspaceCwd,
+                takeSteeringMessages = { closeIfEmpty ->
+                    if (messageRange != null) {
+                        emptyList()
+                    } else {
+                        session.messageQueue.claimSteering(closeIfEmpty).map { steering ->
+                            UIMessage(
+                                id = steering.id,
+                                role = MessageRole.USER,
+                                parts = preprocessUserInputParts(steering.parts, assistant),
+                            )
+                        }
+                    }
+                },
                 memories = if (assistant.useGlobalMemory) {
                     memoryRepository.getGlobalMemories()
                 } else {
@@ -743,7 +769,10 @@ class ChatService(
                 },
                 outputTransformers = outputTransformers,
                 tools = tools,
-            ).onCompletion {
+            ).onCompletion { cause ->
+                if (cause != null) {
+                    session.messageQueue.releaseClaimedSteering()
+                }
                 // 可能被取消了，或者意外结束，兜底更新
                 val updatedConversation = getConversationFlow(conversationId).value.copy(
                     messageNodes = getConversationFlow(conversationId).value.messageNodes.map { node ->
@@ -758,8 +787,13 @@ class ChatService(
                     AppEvent.ChatGenerationEnded(
                         conversationId = conversationId,
                         senderName = senderName,
-                        contentPreview = updatedConversation.currentMessages.lastOrNull()
-                            ?.toText()?.take(50)?.trim() ?: "",
+                        contentPreview = if (cause == null) {
+                            updatedConversation.currentMessages.lastOrNull {
+                                it.role == MessageRole.ASSISTANT
+                            }?.toText()?.take(50)?.trim() ?: ""
+                        } else {
+                            null
+                        },
                     )
                 )
             }.collect { chunk ->
@@ -769,9 +803,16 @@ class ChatService(
                             .updateCurrentMessages(chunk.messages)
                         updateConversation(conversationId, updatedConversation)
 
+                        if (chunk.persist) {
+                            withContext(NonCancellable) {
+                                saveConversation(conversationId, updatedConversation)
+                                session.messageQueue.acknowledgeSteering(chunk.consumedSteeringIds)
+                            }
+                        }
+
                         // 通知等边缘副作用由 ChatNotificationManager 消费；
                         // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
-                        chunk.messages.lastOrNull()?.let { lastMessage ->
+                        chunk.messages.lastOrNull()?.takeIf { chunk.notify }?.let { lastMessage ->
                             appEventBus.tryEmit(
                                 AppEvent.ChatGenerationUpdate(conversationId, lastMessage, senderName)
                             )
@@ -780,6 +821,10 @@ class ChatService(
                 }
             }
         }.onFailure {
+            session.messageQueue.releaseClaimedSteering()
+            if (it !is CancellationException) {
+                session.messageQueue.pause()
+            }
             // 兜底取消 Live Update 通知（生成开始前失败时 onCompletion 不会执行）
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
             if (it is CancellationException) throw it
@@ -1125,7 +1170,7 @@ class ChatService(
 
     private fun checkFilesDelete(newConversation: Conversation, oldConversation: Conversation) {
         val session = sessions[newConversation.id]
-        val queuedFiles = (session?.messageQueue?.state?.value?.messages.orEmpty() +
+        val queuedFiles = (session?.messageQueue?.pendingMessages().orEmpty() +
                 listOfNotNull(session?.submittingMessage))
             .flatMap { it.parts }.localFileUrls().map { it.toUri() }
         val newFiles = newConversation.files + queuedFiles
@@ -1419,8 +1464,8 @@ class ChatService(
             session.messageQueue.pause()
             session.cancelJobs()
         }
-        if (jobs.isEmpty()) return
         jobs.forEach { it.join() }
+        session.messageQueue.releaseClaimedSteering()
         finishInterruptedPendingTools(conversationId)
     }
 }

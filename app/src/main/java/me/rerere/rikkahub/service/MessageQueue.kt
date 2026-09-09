@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.MessageDelivery
 import me.rerere.rikkahub.data.model.localFileUrls
 import kotlin.uuid.Uuid
 
@@ -14,6 +15,7 @@ data class QueuedMessage(
     val parts: List<UIMessagePart>,
     val answer: Boolean = true,
     val isEditing: Boolean = false,
+    val delivery: MessageDelivery = MessageDelivery.NEXT_TURN,
     // Optional in-memory observer; null result means the queued message was withdrawn.
     val reply: CompletableDeferred<String?>? = null,
 )
@@ -40,18 +42,30 @@ class MessageQueuePausedException : IllegalStateException()
 class MessageQueue {
     private val mutableState = MutableStateFlow(MessageQueueState())
     val state = mutableState.asStateFlow()
+    private var acceptsSteering = false
+    private var claimedSteering = emptyList<QueuedMessage>()
 
     @Synchronized
-    fun enqueue(parts: List<UIMessagePart>, answer: Boolean = true, reply: CompletableDeferred<String?>? = null) {
+    fun enqueue(
+        parts: List<UIMessagePart>,
+        answer: Boolean = true,
+        reply: CompletableDeferred<String?>? = null,
+        delivery: MessageDelivery = MessageDelivery.NEXT_TURN,
+    ) {
         if (parts.isEmptyInputMessage()) {
             reply?.complete(null)
             return
         }
+        // A new steering message must not overtake an earlier message waiting for the next turn.
+        val canSteer = delivery == MessageDelivery.STEER && acceptsSteering &&
+                !state.value.paused && answer && reply == null &&
+                state.value.messages.all { it.delivery == MessageDelivery.STEER }
         mutableState.value = state.value.copy(
             messages = state.value.messages + QueuedMessage(
                 parts = parts.toList(),
                 answer = answer,
                 reply = reply,
+                delivery = if (canSteer) MessageDelivery.STEER else MessageDelivery.NEXT_TURN,
             ),
         )
     }
@@ -101,6 +115,7 @@ class MessageQueue {
 
     @Synchronized
     fun pause() {
+        closeSteering()
         mutableState.value = state.value.copy(paused = true)
         state.value.messages.forEach { it.reply?.completeExceptionally(MessageQueuePausedException()) }
     }
@@ -115,4 +130,52 @@ class MessageQueue {
     fun resume() {
         mutableState.value = state.value.copy(paused = false)
     }
+
+    @Synchronized
+    fun openSteering() {
+        acceptsSteering = !state.value.paused
+    }
+
+    @Synchronized
+    fun closeSteering() {
+        acceptsSteering = false
+        mutableState.value = state.value.copy(
+            messages = state.value.messages.map { it.copy(delivery = MessageDelivery.NEXT_TURN) },
+        )
+    }
+
+    /** Claims input at a model step boundary, preserving order and any edit in progress. */
+    @Synchronized
+    fun claimSteering(closeIfEmpty: Boolean): List<QueuedMessage> {
+        if (!acceptsSteering || state.value.paused) return emptyList()
+        val messages = state.value.messages.takeWhile {
+            it.delivery == MessageDelivery.STEER && !it.isEditing
+        }
+        if (messages.isEmpty() && closeIfEmpty) {
+            closeSteering()
+        } else if (messages.isNotEmpty()) {
+            claimedSteering += messages
+            mutableState.value = state.value.copy(messages = state.value.messages.drop(messages.size))
+        }
+        return messages
+    }
+
+    /** Removes claimed input only after it has been saved in conversation history. */
+    @Synchronized
+    fun acknowledgeSteering(ids: Set<Uuid>) {
+        claimedSteering = claimedSteering.filterNot { it.id in ids }
+    }
+
+    @Synchronized
+    fun releaseClaimedSteering() {
+        val messages = claimedSteering.map {
+            if (acceptsSteering && !state.value.paused) it else it.copy(delivery = MessageDelivery.NEXT_TURN)
+        }
+        mutableState.value = state.value.copy(messages = messages + state.value.messages)
+        claimedSteering = emptyList()
+    }
+
+    /** Includes input being saved, so its attachments remain referenced. */
+    @Synchronized
+    fun pendingMessages(): List<QueuedMessage> = claimedSteering + state.value.messages
 }

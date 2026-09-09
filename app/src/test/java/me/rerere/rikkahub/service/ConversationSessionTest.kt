@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.MessageDelivery
 import me.rerere.rikkahub.data.model.Conversation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -189,5 +191,53 @@ class ConversationSessionTest {
             session.cleanup()
             scope.cancel()
         }
+    }
+
+    @Test
+    fun `claimed input retains its session until saved`() {
+        val session = createSession()
+        session.messageQueue.openSteering()
+        session.messageQueue.enqueue(
+            listOf(UIMessagePart.Text("pending")),
+            delivery = MessageDelivery.STEER,
+        )
+        val claimed = session.messageQueue.claimSteering(closeIfEmpty = false)
+        assertTrue(session.isInUse)
+        session.messageQueue.acknowledgeSteering(claimed.mapTo(mutableSetOf()) { it.id })
+        assertFalse(session.isInUse)
+    }
+
+    @Test
+    fun `old job completion does not clear replacement job`() = runBlocking {
+        val session = createSession()
+        val releaseOldJob = CompletableDeferred<Unit>()
+        val oldJob = launch(Dispatchers.Unconfined) {
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) {
+                    releaseOldJob.await()
+                }
+            }
+        }
+        val replacementJob = Job()
+
+        session.setJob(oldJob)
+        session.setJob(replacementJob)
+        releaseOldJob.complete(Unit)
+        oldJob.join()
+
+        assertSame(replacementJob, session.generationJob.value)
+        replacementJob.cancel()
+    }
+
+    private fun createSession(): ConversationSession {
+        val id = Uuid.random()
+        return ConversationSession(
+            id = id,
+            initial = Conversation.ofId(id = id, assistantId = Uuid.random()),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            onIdle = {},
+        )
     }
 }

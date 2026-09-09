@@ -47,7 +47,7 @@ class ConversationSession(
     val isGenerating: Boolean get() = _generationJob.value?.isActive == true
     val isInUse: Boolean
         get() = refCount.get() > 0 || _generationJob.value != null ||
-                messageQueue.state.value.messages.isNotEmpty()
+                messageQueue.pendingMessages().isNotEmpty()
 
     // 空闲检查任务
     private var idleCheckJob: Job? = null
@@ -130,6 +130,7 @@ class ConversationSession(
     fun cleanup() {
         _generationJob.value = null
         cancelJobs()
+        messageQueue.closeSteering()
         idleCheckJob?.cancel()
         idleCheckJob = null
     }
