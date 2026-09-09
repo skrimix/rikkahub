@@ -1,9 +1,9 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ReasoningPart, ToolPart, UIMessagePart } from "~/types";
+import type { ReasoningPart, TextPart as TextMessagePart, ToolPart, UIMessagePart } from "~/types";
 
-import { ChainOfThought } from "./chain-of-thought";
+import { ChainOfThought, ChainOfThoughtStep } from "./chain-of-thought";
 import { AudioPart } from "./parts/audio-part";
 import { DocumentPart } from "./parts/document-part";
 import { ImagePart } from "./parts/image-part";
@@ -14,6 +14,10 @@ import { ToolPart as ToolStepPart } from "./parts/tool-part";
 import { VideoPart } from "./parts/video-part";
 
 type ThinkingStep =
+  | {
+      type: "commentary";
+      text: TextMessagePart;
+    }
   | {
       type: "reasoning";
       reasoning: ReasoningPart;
@@ -45,6 +49,11 @@ export function groupMessageParts(parts: UIMessagePart[]): MessagePartBlock[] {
   };
 
   parts.forEach((part, index) => {
+    if (part.type === "text" && part.metadata?.phase === "commentary") {
+      currentThinkingSteps.push({ type: "commentary", text: part });
+      return;
+    }
+
     if (part.type === "reasoning") {
       currentThinkingSteps.push({ type: "reasoning", reasoning: part });
       return;
@@ -130,6 +139,24 @@ export const MessageParts = React.memo(({
               }
               steps={block.steps}
               renderStep={(step, stepIndex, { isFirst, isLast }) => {
+                if (step.type === "commentary") {
+                  return (
+                    <ChainOfThoughtStep
+                      key={`commentary-${blockIndex}-${stepIndex}`}
+                      label="Commentary"
+                      defaultExpanded
+                      isFirst={isFirst}
+                      isLast={isLast}
+                    >
+                      <TextPart
+                        text={step.text.text}
+                        isAnimating={loading}
+                        onClickCitation={onClickCitation}
+                      />
+                    </ChainOfThoughtStep>
+                  );
+                }
+
                 if (step.type === "reasoning") {
                   const stepKey = step.reasoning.createdAt ?? `${blockIndex}-${stepIndex}`;
                   return (

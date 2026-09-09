@@ -21,6 +21,17 @@ import me.rerere.ai.util.json
  */
 sealed interface PartMetadata
 
+/** Responses message identity and phase, preserved when sending conversation history. */
+@Serializable
+data class OpenAIMessageMetadata(
+    @SerialName("openai_message_id")
+    val messageId: String? = null,
+    val phase: String? = null,
+) : PartMetadata
+
+val UIMessagePart.Text.isCommentary: Boolean
+    get() = metadataAs<OpenAIMessageMetadata>()?.phase == "commentary"
+
 /**
  * Claude thinking block 的元数据, 回传时需要携带 signature
  */

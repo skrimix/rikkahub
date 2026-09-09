@@ -50,6 +50,7 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             "response.output_text.delta" -> state.textDelta(
                 textId ?: error("item_id not found"),
                 payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
+                state.messageMetadata[itemId],
             )
             "response.reasoning_summary_text.delta" -> state.reasoningDelta(
                 summaryReasoningId ?: error("item_id not found"),
@@ -66,11 +67,13 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             "response.content_part.added" -> {
                 val part = payload["part"]?.jsonObject ?: return emptyList()
                 if (part["type"]?.jsonPrimitive?.contentOrNull == "output_text") {
-                    state.startText(textId ?: error("item_id not found"))
+                    state.startText(textId ?: error("item_id not found"), state.messageMetadata[itemId])
                 } else emptyList()
             }
             "response.content_part.done", "response.output_text.done" ->
-                state.endText(textId ?: error("item_id not found"))
+                // Keep the text open until the message item supplies its final phase.
+                if (itemId in state.messageMetadata) emptyList()
+                else state.endText(textId ?: error("item_id not found"))
             "response.reasoning_summary_part.added" -> state.startReasoning(
                 summaryReasoningId ?: error("item_id not found"),
                 state.reasoningMetadata[itemId],
@@ -84,6 +87,10 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 val type = item["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
                 val id = item["id"]?.jsonPrimitive?.content ?: error("chunk id not found")
                 when (type) {
+                    "message" -> {
+                        state.messageMetadata[id] = item.toOpenAIMessageMetadata()
+                        emptyList()
+                    }
                     "function_call" -> {
                         val callId = item["call_id"]?.jsonPrimitive?.contentOrNull ?: id
                         state.toolCallIdsByItemId[id] = callId
@@ -111,6 +118,7 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 val type = item["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
                 val id = item["id"]?.jsonPrimitive?.content ?: error("chunk id not found")
                 when (type) {
+                    "message" -> state.endTextItem(id, item.toOpenAIMessageMetadata())
                     "reasoning" -> {
                         val metadata = OpenAIReasoningMetadata(
                             reasoningId = id,
@@ -240,6 +248,7 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
         val toolCallIdsByItemId = mutableMapOf<String, String>()
         val toolIdsWithInput = mutableSetOf<String>()
         val reasoningMetadata = mutableMapOf<String, JsonObject>()
+        val messageMetadata = mutableMapOf<String, JsonObject?>()
         private val openTextIds = linkedSetOf<String>()
         private val openReasoningIds = linkedSetOf<String>()
         private val openImageIds = linkedSetOf<String>()
@@ -252,9 +261,22 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             finished = true
         }
 
-        fun startText(id: String) = if (openTextIds.add(id)) listOf(StreamChunk.TextStart(id)) else emptyList()
-        fun textDelta(id: String, text: String) = startText(id) + StreamChunk.TextDelta(id, text)
+        fun startText(id: String, metadata: JsonObject?) =
+            if (openTextIds.add(id)) listOf(StreamChunk.TextStart(id, metadata)) else emptyList()
+        fun textDelta(id: String, text: String, metadata: JsonObject?) =
+            startText(id, metadata) + StreamChunk.TextDelta(id, text, metadata)
         fun endText(id: String) = if (openTextIds.remove(id)) listOf(StreamChunk.TextEnd(id)) else emptyList()
+
+        fun endTextItem(itemId: String, metadata: JsonObject?): List<StreamChunk> {
+            val finalMetadata = metadata ?: messageMetadata[itemId]
+            messageMetadata.remove(itemId)
+            return openTextIds.filter { it.startsWith("$itemId:text:") }.flatMap { id ->
+                buildList {
+                    if (finalMetadata != null) add(StreamChunk.TextDelta(id, "", finalMetadata))
+                    addAll(endText(id))
+                }
+            }
+        }
         fun startReasoning(id: String, metadata: JsonObject?, reasoningType: ReasoningType) =
             if (openReasoningIds.add(id)) {
                 listOf(StreamChunk.ReasoningStart(id, metadata, reasoningType))

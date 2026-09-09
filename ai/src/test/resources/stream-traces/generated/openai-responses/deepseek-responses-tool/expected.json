@@ -10,7 +10,11 @@
         },
         {
             "type": "text",
-            "text": "I'll research all three technologies in parallel to gather the latest information on their stable releases."
+            "text": "I'll research all three technologies in parallel to gather the latest information on their stable releases.",
+            "metadata": {
+                "openai_message_id": "aff33174-e5ca-4cc5-9db5-b68474ae2c1f",
+                "phase": "commentary"
+            }
         },
         {
             "type": "tool",

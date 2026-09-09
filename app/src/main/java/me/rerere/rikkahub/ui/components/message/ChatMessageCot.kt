@@ -2,11 +2,12 @@ package me.rerere.rikkahub.ui.components.message
 
 import androidx.compose.ui.util.fastForEachIndexed
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isCommentary
 
-/**
- * 思考步骤类型，用于分组 Reasoning、客户端 Tool 和 ServerTool
- */
+/** A reasoning, commentary or tool step displayed before the answer. */
 sealed interface ThinkingStep {
+    data class CommentaryStep(val text: UIMessagePart.Text) : ThinkingStep
+
     data class ReasoningStep(
         val reasoning: UIMessagePart.Reasoning,
     ) : ThinkingStep
@@ -28,10 +29,7 @@ sealed interface MessagePartBlock {
     data class ContentBlock(val part: UIMessagePart, val index: Int) : MessagePartBlock
 }
 
-/**
- * 将 parts 分组成 ThinkingBlock 和 ContentBlock
- * 连续的 Reasoning、客户端 Tool 和 ServerTool 会被分组到一个 ThinkingBlock 中
- */
+/** Groups consecutive reasoning, commentary and tools while preserving content order. */
 fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
     val result = mutableListOf<MessagePartBlock>()
     var currentThinkingSteps = mutableListOf<ThinkingStep>()
@@ -45,6 +43,15 @@ fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
 
     this.fastForEachIndexed { index, part ->
         when (part) {
+            is UIMessagePart.Text -> {
+                if (part.isCommentary) {
+                    currentThinkingSteps.add(ThinkingStep.CommentaryStep(part))
+                } else {
+                    flushThinkingSteps()
+                    result.add(MessagePartBlock.ContentBlock(part, index))
+                }
+            }
+
             is UIMessagePart.Reasoning -> {
                 currentThinkingSteps.add(ThinkingStep.ReasoningStep(part))
             }

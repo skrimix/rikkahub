@@ -87,6 +87,7 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.ui.components.message.MessagePartBlock
 import me.rerere.rikkahub.ui.components.message.ThinkingStep
 import me.rerere.rikkahub.ui.components.message.ChatMessageServerToolStep
+import me.rerere.rikkahub.ui.components.message.ChatMessageCommentaryStep
 import me.rerere.rikkahub.ui.components.message.groupMessageParts
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
@@ -556,6 +557,10 @@ private fun ExportedChatMessage(
                                 collapsedVisibleCount = block.steps.size
                             ) { step ->
                                 when (step) {
+                                    is ThinkingStep.CommentaryStep -> {
+                                        ChatMessageCommentaryStep(text = step.text.text)
+                                    }
+
                                     is ThinkingStep.ReasoningStep -> {
                                         ExportedReasoningStep(
                                             reasoning = step.reasoning,

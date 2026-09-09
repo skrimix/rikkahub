@@ -40,6 +40,7 @@ import me.rerere.ai.provider.providers.groupPartsByToolBoundary
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.OpenAIReasoningMetadata
+import me.rerere.ai.ui.OpenAIMessageMetadata
 import me.rerere.ai.ui.ReasoningType
 import me.rerere.ai.ui.ServerToolMetadata
 import me.rerere.ai.ui.ServerToolProtocol
@@ -391,6 +392,13 @@ class ResponseAPI(
                             }
 
                             is UIMessagePart.Text -> {
+                                if (contentBuffer.isNotEmpty() &&
+                                    contentBuffer.last().metadataAs<OpenAIMessageMetadata>() !=
+                                    part.metadataAs<OpenAIMessageMetadata>()
+                                ) {
+                                    addContentItem(MessageRole.ASSISTANT, contentBuffer)
+                                    contentBuffer.clear()
+                                }
                                 contentBuffer.add(part)
                             }
 
@@ -506,6 +514,9 @@ class ResponseAPI(
 
         add(buildJsonObject {
             put("role", JsonPrimitive(role.name.lowercase()))
+            if (role == MessageRole.ASSISTANT) {
+                parts.first().metadataAs<OpenAIMessageMetadata>()?.phase?.let { put("phase", it) }
+            }
 
             if (parts.isOnlyTextPart()) {
                 put("content", (parts.first() as UIMessagePart.Text).text)
@@ -623,7 +634,8 @@ class ResponseAPI(
                                 val text = part["text"]?.jsonPrimitive?.content ?: error("text not found")
                                 parts.add(
                                     UIMessagePart.Text(
-                                        text = text
+                                        text = text,
+                                        metadata = output.toOpenAIMessageMetadata(),
                                     )
                                 )
                             }
@@ -661,6 +673,14 @@ class ResponseAPI(
                 ?: 0
         )
     }
+}
+
+internal fun JsonObject.toOpenAIMessageMetadata(): JsonObject? {
+    val phase = get("phase")?.jsonPrimitive?.contentOrNull ?: return null
+    return OpenAIMessageMetadata(
+        messageId = get("id")?.jsonPrimitive?.contentOrNull,
+        phase = phase,
+    ).toMetadata()
 }
 
 internal fun isOpenAIServerToolCall(type: String): Boolean =

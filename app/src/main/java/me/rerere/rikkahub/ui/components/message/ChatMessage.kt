@@ -328,6 +328,17 @@ private fun MessagePartsBlock(
                         ),
                     ) { step ->
                         when (step) {
+                            is ThinkingStep.CommentaryStep -> {
+                                ChatMessageCommentaryStep(
+                                    text = step.text.text.replaceRegexes(
+                                        assistant = assistant,
+                                        scope = AssistantAffectScope.ASSISTANT,
+                                        visual = true,
+                                    ),
+                                    onClickCitation = handleClickCitation,
+                                )
+                            }
+
                             is ThinkingStep.ReasoningStep -> {
                                 key(step.reasoning.createdAt) {
                                     ChatMessageReasoningStep(
