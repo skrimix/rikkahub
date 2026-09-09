@@ -59,6 +59,14 @@
     android:theme="@style/Theme.Rikkahub"
     android:usesCleartextTraffic="true"
     tools:targetApi="33">
+    <!-- Keep telemetry disabled while retaining the upstream Firebase dependencies. -->
+    <meta-data
+      android:name="firebase_analytics_collection_deactivated"
+      android:value="true" />
+    <meta-data
+      android:name="firebase_crashlytics_collection_enabled"
+      android:value="false" />
+
     <activity
       android:name=".ui.activity.SafeModeActivity"
       android:exported="false"
