@@ -4,6 +4,7 @@ import android.content.Context
 import me.rerere.ai.core.Tool
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.shizuku.ShizukuShellManager
 import me.rerere.tts.provider.TTSManager
 
 class LocalTools(
@@ -11,6 +12,7 @@ class LocalTools(
     private val eventBus: AppEventBus,
     private val ttsManager: TTSManager,
     private val settingsStore: SettingsStore,
+    private val shizukuShellManager: ShizukuShellManager,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -28,8 +30,11 @@ class LocalTools(
 
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
-    fun getTools(options: List<LocalToolOption>): List<Tool> {
+    fun getTools(options: List<LocalToolOption>, shizukuShellRequiresApproval: Boolean = true): List<Tool> {
         val tools = mutableListOf<Tool>()
+        if (LocalToolOption.ShizukuShell in options) {
+            tools.addAll(buildShizukuTools(shizukuShellManager, shizukuShellRequiresApproval))
+        }
         if (options.contains(LocalToolOption.JavascriptEngine)) {
             tools.add(javascriptTool)
         }

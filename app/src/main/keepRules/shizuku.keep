@@ -1,0 +1,2 @@
+# Shizuku constructs this Binder service in a privileged process.
+-keep class me.rerere.rikkahub.data.shizuku.ShizukuShellService { public <init>(); }

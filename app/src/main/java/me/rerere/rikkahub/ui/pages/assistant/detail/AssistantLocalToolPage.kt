@@ -127,6 +127,7 @@ private fun AssistantLocalToolContent(
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        ShizukuToolSettings(assistant, onUpdate)
         CardGroup {
             item(
                 headlineContent = {

@@ -286,11 +286,16 @@ private fun FileContentPreview(path: String?, code: String) {
 /**
  * 工作空间执行 Shell: 摘要显示退出状态与输出首部, 详情为命令 + stdout/stderr
  */
-object ShellToolUI : ToolUIRenderer {
-    private const val TITLE_MAX_CHARS = 40
-    private const val SUMMARY_MAX_LINES = 8
+object ShellToolUI : ToolUIRenderer by ShellToolRenderer("workspace_shell")
 
-    override val toolName: String = "workspace_shell"
+object ShizukuShellToolUI : ToolUIRenderer by ShellToolRenderer("shizuku_shell", phoneShell = true)
+
+private class ShellToolRenderer(
+    override val toolName: String,
+    private val phoneShell: Boolean = false,
+) : ToolUIRenderer {
+    private val TITLE_MAX_CHARS = 40
+    private val SUMMARY_MAX_LINES = 8
 
     override fun icon(context: ToolUIContext): ImageVector = HugeIcons.ComputerTerminal01
 
@@ -299,7 +304,7 @@ object ShellToolUI : ToolUIRenderer {
         val command = context.arguments.getStringContent("command") ?: return stringResource(R.string.tool_ui_shell_default)
         val preview = command.replace("\n", " ").trim()
         val truncated = if (preview.length > TITLE_MAX_CHARS) preview.take(TITLE_MAX_CHARS) + "…" else preview
-        return stringResource(R.string.tool_ui_shell, truncated)
+        return if (phoneShell) "Device shell: $truncated" else stringResource(R.string.tool_ui_shell, truncated)
     }
 
     override fun hasSummary(context: ToolUIContext): Boolean = context.content != null
@@ -307,6 +312,10 @@ object ShellToolUI : ToolUIRenderer {
     @Composable
     override fun Summary(context: ToolUIContext) {
         val content = context.content ?: return
+        content.getStringContent("error")?.let {
+            Text(content.getStringContent("message") ?: it, color = MaterialTheme.colorScheme.error)
+            return
+        }
         val combined = remember(content) {
             listOf(content.getStringContent("stdout"), content.getStringContent("stderr"))
                 .filterNot { it.isNullOrBlank() }
@@ -315,6 +324,8 @@ object ShellToolUI : ToolUIRenderer {
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ShellExitStatus(content, MaterialTheme.typography.labelSmall)
+            if (phoneShell) PhoneShellIdentity(content)
+            if (content.boolean("truncated") == true) Text("Output truncated", style = MaterialTheme.typography.labelSmall)
             if (combined.isNotEmpty()) {
                 Box(
                     modifier = Modifier
@@ -340,12 +351,12 @@ object ShellToolUI : ToolUIRenderer {
     @Composable
     override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
         val content = context.content
-        if (content == null) {
+        if (content == null || content.getStringContent("error") != null) {
             DefaultToolPreview(context = context)
             return
         }
         val command = context.arguments.getStringContent("command").orEmpty()
-        val cwd = context.arguments.getStringContent("cwd")
+        val cwd = context.arguments.getStringContent("cwd") ?: if (phoneShell) "/" else null
         val stdout = content.getStringContent("stdout").orEmpty()
         val stderr = content.getStringContent("stderr").orEmpty()
         Column(
@@ -361,12 +372,14 @@ object ShellToolUI : ToolUIRenderer {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = stringResource(R.string.tool_ui_shell_default),
+                    text = if (phoneShell) "Device shell (Shizuku)" else stringResource(R.string.tool_ui_shell_default),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
                 ShellExitStatus(content, MaterialTheme.typography.labelMedium)
             }
+            if (phoneShell) PhoneShellIdentity(content)
+            if (content.boolean("truncated") == true) Text("Output truncated")
             HighlightCodeBlock(
                 code = if (cwd.isNullOrBlank()) command else "# cwd: $cwd\n$command",
                 language = "bash",
@@ -394,6 +407,13 @@ object ShellToolUI : ToolUIRenderer {
             }
         }
     }
+}
+
+@Composable
+private fun PhoneShellIdentity(content: JsonElement) {
+    val uid = content.int("uid") ?: return
+    val identity = when (uid) { 0 -> "root"; 2000 -> "ADB shell"; else -> "other" }
+    Text("$identity (UID $uid)", style = MaterialTheme.typography.labelSmall)
 }
 
 /** Shell 退出状态文本: exit code 为 0 显示绿色, 超时或非零显示错误色 */
