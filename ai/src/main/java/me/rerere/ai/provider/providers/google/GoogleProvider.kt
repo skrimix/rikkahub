@@ -364,7 +364,11 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
                         ReasoningLevel.OFF -> {
                             if (ModelRegistry.GEMINI_3_SERIES.match(modelId = params.model.modelId)) {
-                                put("thinkingLevel", "minimal")
+                                // Only older Flash families support minimal; use low otherwise.
+                                val supportsMinimal = params.model.modelId.contains(
+                                    Regex("gemini-3(?:\\.[156])?-flash(?:-|$)", RegexOption.IGNORE_CASE)
+                                )
+                                put("thinkingLevel", if (supportsMinimal) "minimal" else "low")
                             } else if (!isGeminiPro) {
                                 put("thinkingBudget", 0)
                                 put("includeThoughts", false)
