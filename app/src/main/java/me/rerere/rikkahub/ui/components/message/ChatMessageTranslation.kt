@@ -71,6 +71,7 @@ fun LanguageSelectionDialog(
             Locale.GERMAN,
             Locale("es", "ES"),
             Locale.ITALIAN,
+            Locale.forLanguageTag("ru"),
         )
     }
 

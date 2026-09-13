@@ -152,7 +152,7 @@ fun TranslatorPage(vm: TranslatorVM = koinViewModel()) {
                     }
                 ) {
                     Icon(HugeIcons.Clipboard, null)
-                    Text("粘贴文本", modifier = Modifier.padding(start = 4.dp))
+                    Text(stringResource(android.R.string.paste), modifier = Modifier.padding(start = 4.dp))
                 }
             }
 
@@ -214,7 +214,8 @@ private val Locales by lazy {
         Locale.FRENCH,
         Locale.GERMAN,
         Locale.ITALIAN,
-        Locale("es", "ES")
+        Locale("es", "ES"),
+        Locale.forLanguageTag("ru")
     )
 }
 
