@@ -92,6 +92,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatService"
+private const val COMPLETION_NOTIFICATION_PREVIEW_CHARS = 200
 
 internal fun backgroundTextGenerationParams(
     model: Model,
@@ -790,9 +791,7 @@ class ChatService(
                         conversationId = conversationId,
                         senderName = senderName,
                         contentPreview = if (cause == null) {
-                            updatedConversation.currentMessages.lastOrNull {
-                                it.role == MessageRole.ASSISTANT
-                            }?.toText()?.take(50)?.trim() ?: ""
+                            buildCompletionNotificationPreview(updatedConversation)
                         } else {
                             null
                         },
@@ -1120,6 +1119,23 @@ class ChatService(
     }
 
     // ---- 对话状态更新 ----
+
+    /**
+     * 完成通知的内容预览：取最后一条助手消息的最后一个非空文本 part。
+     * 工具调用链中整条 message → tools → message 会合并在同一条助手消息里，
+     * 拼接全部文本再取头部会误显示工具调用前的开场白，而不是最终回复。
+     */
+    private fun buildCompletionNotificationPreview(conversation: Conversation): String {
+        val text = conversation.currentMessages
+            .lastOrNull { it.role == MessageRole.ASSISTANT }
+            ?.parts
+            ?.filterIsInstance<UIMessagePart.Text>()
+            ?.lastOrNull { it.text.isNotBlank() }
+            ?.text
+            ?.trim()
+            .orEmpty()
+        return text.take(COMPLETION_NOTIFICATION_PREVIEW_CHARS)
+    }
 
     private fun updateConversation(conversationId: Uuid, conversation: Conversation) {
         if (conversation.id != conversationId) return

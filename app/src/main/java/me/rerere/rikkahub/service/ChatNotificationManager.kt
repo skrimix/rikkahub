@@ -104,6 +104,7 @@ class ChatNotificationManager(
             content = contentPreview
             autoCancel = true
             useDefaults = true
+            useBigTextStyle = true
             category = NotificationCompat.CATEGORY_MESSAGE
             contentIntent = getPendingIntent(context, conversationId)
         }
