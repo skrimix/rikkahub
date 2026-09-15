@@ -8,6 +8,7 @@ import me.rerere.hugeicons.stroke.Delete01
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -65,13 +66,24 @@ fun HistoryPage(vm: HistoryVM = koinViewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     var showDeleteAllDialog by remember { mutableStateOf(false) }
 
+    val assistant by vm.assistant.collectAsStateWithLifecycle()
     val conversations by vm.conversations.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(stringResource(R.string.history_page_title))
+                    Column {
+                        Text(stringResource(R.string.history_page_title))
+                        Text(
+                            text = assistant?.name?.takeIf { it.isNotBlank() }
+                                ?: stringResource(R.string.assistant_page_default_assistant),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 },
                 navigationIcon = {
                     BackButton()

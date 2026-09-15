@@ -49,6 +49,7 @@ import me.rerere.hugeicons.stroke.Book01
 import me.rerere.hugeicons.stroke.Book03
 import me.rerere.hugeicons.stroke.Bookshelf01
 import me.rerere.hugeicons.stroke.Brain02
+import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.Clapping01
 import me.rerere.hugeicons.stroke.Database02
 import me.rerere.hugeicons.stroke.GlobalSearch
@@ -63,6 +64,7 @@ import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.hugeicons.stroke.Tiktok
+import me.rerere.hugeicons.stroke.TransactionHistory
 import me.rerere.hugeicons.stroke.WavingHand01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -256,6 +258,18 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     modifier = Modifier.padding(horizontal = 8.dp),
                     title = { Text(stringResource(R.string.setting_page_data_settings)) },
                 ) {
+                    item(
+                        onClick = { navController.navigate(Screen.History) },
+                        leadingContent = { Icon(HugeIcons.TransactionHistory, null) },
+                        supportingContent = { Text("Manage chats across all folders for the current assistant") },
+                        headlineContent = { Text(stringResource(R.string.history_page_title)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.Stats) },
+                        leadingContent = { Icon(HugeIcons.ChartColumn, null) },
+                        supportingContent = { Text("Chat activity and token usage") },
+                        headlineContent = { Text(stringResource(R.string.stats_page_title)) },
+                    )
                     item(
                         onClick = { navController.navigate(Screen.Backup) },
                         leadingContent = { Icon(HugeIcons.Database02, null) },
