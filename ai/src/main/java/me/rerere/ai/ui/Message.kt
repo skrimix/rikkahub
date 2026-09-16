@@ -23,7 +23,10 @@ data class UIMessage(
         .toLocalDateTime(TimeZone.currentSystemDefault()),
     val finishedAt: LocalDateTime? = null,
     val modelId: Uuid? = null,
+    /** Total usage across all generation requests appended to this message. */
     val usage: TokenUsage? = null,
+    /** Latest known request usage, for context-size checks. Older messages fall back to [usage]. */
+    val lastRequestUsage: TokenUsage? = null,
     val translation: String? = null,
     // 请求期间生成的内部消息；该标记仅在内存中使用
     @Transient

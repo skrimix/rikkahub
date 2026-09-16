@@ -41,7 +41,7 @@ fun rememberConversationSizeInfo(conversation: Conversation): ConversationSizeIn
         val lastAssistantInputTokens = conversation.messageNodes.asReversed()
             .map { it.currentMessage }
             .firstOrNull { it.role == MessageRole.ASSISTANT }
-            ?.usage
+            ?.let { it.lastRequestUsage ?: it.usage }
             ?.promptTokens
             ?: 0
         val exceedNodeCountThreshold = nodeCount > MESSAGE_NODE_WARNING_THRESHOLD

@@ -10,10 +10,131 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.TextGenerationResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class StreamChunkHandlerTest {
     private val model = Model(modelId = "test-model")
+
+    @Test
+    fun `streamed tool chain should sum requests without summing usage snapshots`() {
+        var messages = listOf(UIMessage.user("use tools"))
+
+        repeat(3) { step ->
+            val handler = StreamChunkHandler(model)
+            messages = handler.handle(messages, StreamChunk.ReasoningDelta("reasoning", "think"))
+            messages = handler.handle(messages, StreamChunk.Usage(TokenUsage(promptTokens = 10)))
+            messages = handler.handle(messages, StreamChunk.Usage(TokenUsage(completionTokens = 2)))
+            val finalUsage = StreamChunk.Usage(TokenUsage(10, 5, 4, 15))
+            messages = handler.handle(messages, finalUsage)
+            messages = handler.handle(messages, finalUsage)
+
+            if (step < 2) {
+                messages = handler.handle(messages, StreamChunk.ToolCallStart("call-$step", "search"))
+                messages = handler.handle(messages, StreamChunk.ToolCallEnd("call-$step"))
+            } else {
+                messages = handler.handle(messages, StreamChunk.TextDelta("answer", "done"))
+            }
+            messages = handler.handle(messages, StreamChunk.Finish())
+            messages = messages.dropLast(1) + messages.last().finishPendingTools {
+                it.copy(output = listOf(UIMessagePart.Text("result")))
+            }
+
+            val requests = step + 1
+            assertEquals(TokenUsage(10 * requests, 5 * requests, 4 * requests, 15 * requests), messages.last().usage)
+            assertEquals(TokenUsage(10, 5, 4, 15), messages.last().lastRequestUsage)
+        }
+
+        assertEquals(2, messages.size)
+        assertEquals(2, messages.last().getTools().size)
+        assertEquals("done", messages.last().parts.filterIsInstance<UIMessagePart.Text>().single().text)
+    }
+
+    @Test
+    fun `new request should not inherit cached or output tokens from earlier requests`() {
+        val previous = UIMessage.assistant("earlier").copy(usage = TokenUsage(100, 20, 80, 120))
+        val handler = StreamChunkHandler(model)
+        var messages = handler.handle(listOf(previous), StreamChunk.Usage(TokenUsage(promptTokens = 50)))
+
+        assertEquals(TokenUsage(150, 20, 80, 170), messages.last().usage)
+        assertEquals(TokenUsage(50, 0, 0, 50), messages.last().lastRequestUsage)
+
+        messages = handler.handle(messages, StreamChunk.Usage(TokenUsage(completionTokens = 5)))
+        assertEquals(TokenUsage(150, 25, 80, 175), messages.last().usage)
+        assertEquals(TokenUsage(50, 5, 0, 55), messages.last().lastRequestUsage)
+    }
+
+    @Test
+    fun `retry from response base should discard failed attempt usage`() {
+        val base = listOf(UIMessage.assistant("tool response").copy(usage = TokenUsage(100, 20, 80, 120)))
+        val failedAttempt = StreamChunkHandler(model).handle(base, StreamChunk.Usage(TokenUsage(50, 2)))
+        assertEquals(TokenUsage(150, 22, 80, 172), failedAttempt.last().usage)
+
+        val retried = StreamChunkHandler(model).handle(base, StreamChunk.Usage(TokenUsage(50, 5)))
+        assertEquals(TokenUsage(150, 25, 80, 175), retried.last().usage)
+    }
+
+    @Test
+    fun `new assistant reply should not include previous reply usage`() {
+        val messages = listOf(
+            UIMessage.assistant("previous").copy(usage = TokenUsage(100, 20, 80, 120)),
+            UIMessage.user("next"),
+        )
+        val updated = StreamChunkHandler(model).handle(messages, StreamChunk.Usage(TokenUsage(10, 5)))
+
+        assertEquals(3, updated.size)
+        assertEquals(TokenUsage(10, 5, 0, 15), updated.last().usage)
+    }
+
+    @Test
+    fun `non streaming tool chain should sum usage across requests`() {
+        var messages = listOf(UIMessage.user("use a tool"))
+        val toolResult = TextGenerationResult(
+            id = "tool-response",
+            model = model.modelId,
+            message = UIMessage(role = MessageRole.ASSISTANT, parts = listOf(
+                UIMessagePart.Tool(toolCallId = "call-1", toolName = "search", input = "{}"),
+            )),
+            usage = TokenUsage(100, 20, 80, 120),
+        )
+        messages = messages.handleTextGenerationResult(toolResult, model)
+        messages = messages.dropLast(1) + messages.last().finishPendingTools {
+            it.copy(output = listOf(UIMessagePart.Text("result")))
+        }
+        val finalResult = TextGenerationResult(
+            id = "final-response",
+            model = model.modelId,
+            message = UIMessage.assistant("done"),
+            usage = TokenUsage(50, 5),
+        )
+        messages = messages.handleTextGenerationResult(finalResult, model)
+
+        assertEquals(2, messages.size)
+        assertEquals(1, messages.last().getTools().size)
+        assertEquals(TokenUsage(150, 25, 80, 175), messages.last().usage)
+        assertEquals(finalResult.usage, messages.last().lastRequestUsage)
+    }
+
+    @Test
+    fun `missing usage should preserve known totals and remain null when unknown`() {
+        val result = TextGenerationResult(
+            id = "response",
+            model = model.modelId,
+            message = UIMessage.assistant("done"),
+        )
+        val unknown = listOf(UIMessage.assistant("start"))
+            .handleTextGenerationResult(result, model)
+        assertNull(unknown.last().usage)
+        assertNull(unknown.last().lastRequestUsage)
+
+        val knownUsage = TokenUsage(100, 20, 80, 120)
+        val known = listOf(UIMessage.assistant("start").copy(usage = knownUsage))
+        val streamed = StreamChunkHandler(model).handle(known, StreamChunk.TextDelta("text", "done"))
+        assertEquals(knownUsage, streamed.last().usage)
+        val nonStreamed = known.handleTextGenerationResult(result, model)
+        assertEquals(knownUsage, nonStreamed.last().usage)
+        assertEquals(knownUsage, nonStreamed.last().lastRequestUsage)
+    }
 
     @Test
     fun `text lifecycle should create and update assistant message`() {

@@ -10,6 +10,7 @@ data class TokenUsage(
     val totalTokens: Int = 0,
 )
 
+/** Merges cumulative usage updates from the same request. */
 fun TokenUsage?.merge(other: TokenUsage): TokenUsage {
     val promptTokens = if (other.promptTokens > 0) {
         other.promptTokens
@@ -33,4 +34,20 @@ fun TokenUsage?.merge(other: TokenUsage): TokenUsage {
         totalTokens = totalTokens,
         cachedTokens = cachedTokens
     )
+}
+
+/** Adds usage from separate requests, preserving missing usage as null. */
+fun TokenUsage?.sum(other: TokenUsage?): TokenUsage? {
+    if (this == null && other == null) return null
+    return TokenUsage(
+        promptTokens = (this?.promptTokens ?: 0) + (other?.promptTokens ?: 0),
+        completionTokens = (this?.completionTokens ?: 0) + (other?.completionTokens ?: 0),
+        cachedTokens = (this?.cachedTokens ?: 0) + (other?.cachedTokens ?: 0),
+        totalTokens = this.totalOrInferred() + other.totalOrInferred(),
+    )
+}
+
+private fun TokenUsage?.totalOrInferred(): Int {
+    if (this == null) return 0
+    return totalTokens.takeIf { it > 0 } ?: (promptTokens + completionTokens)
 }

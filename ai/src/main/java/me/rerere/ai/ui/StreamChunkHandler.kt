@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.core.merge
+import me.rerere.ai.core.sum
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.TextGenerationResult
 import me.rerere.ai.util.json
@@ -60,6 +61,8 @@ class StreamChunkHandler(private val model: Model? = null) {
     private val reasoningPartIndexes = mutableMapOf<String, Int>()
     private val imagePartIndexes = mutableMapOf<String, Int>()
     private val serverToolInputBuffers = mutableMapOf<String, StringBuilder>()
+    private var previousUsage: TokenUsage? = null
+    private var requestUsage: TokenUsage? = null
 
     /**
      * 将一个 [chunk] 合并进消息列表末尾的助手消息，并返回新的消息列表。
@@ -289,7 +292,16 @@ class StreamChunkHandler(private val model: Model? = null) {
 
             is StreamChunk.ImageEnd -> this.also { imagePartIndexes.remove(chunk.id) }
             is StreamChunk.Annotations -> copy(annotations = (annotations + chunk.annotations).distinct())
-            is StreamChunk.Usage -> copy(usage = usage.merge(chunk.usage))
+            is StreamChunk.Usage -> {
+                // Streaming updates are cumulative within this request; only add the
+                // message's earlier requests once, including when resuming after tools.
+                if (requestUsage == null) previousUsage = usage
+                requestUsage = requestUsage.merge(chunk.usage)
+                copy(
+                    usage = previousUsage.sum(requestUsage),
+                    lastRequestUsage = requestUsage,
+                )
+            }
             is StreamChunk.Finish -> copy(
                 finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
             ).finishReasoning().also {
@@ -328,6 +340,7 @@ fun List<UIMessage>.handleTextGenerationResult(
     val incoming = result.message.copy(
         modelId = model?.id,
         usage = result.usage,
+        lastRequestUsage = result.message.lastRequestUsage ?: result.usage,
         finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
     ).finishReasoning()
     return if (last().role != incoming.role) {
@@ -335,7 +348,8 @@ fun List<UIMessage>.handleTextGenerationResult(
     } else {
         dropLast(1) + last().appendMessage(incoming).copy(
             modelId = model?.id ?: last().modelId,
-            usage = last().usage.merge(result.usage ?: TokenUsage()),
+            usage = last().usage.sum(result.usage),
+            lastRequestUsage = incoming.lastRequestUsage ?: last().lastRequestUsage ?: last().usage,
             finishedAt = incoming.finishedAt,
         ).finishReasoning()
     }
