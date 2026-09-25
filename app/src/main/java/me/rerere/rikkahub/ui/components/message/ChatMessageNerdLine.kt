@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.components.message
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -24,9 +25,11 @@ import me.rerere.hugeicons.stroke.Download04
 import me.rerere.hugeicons.stroke.Upload02
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.utils.formatNumber
 import me.rerere.rikkahub.utils.toFixed
 import java.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * 显示消息的技术统计信息（如 token 使用量）
@@ -38,15 +41,36 @@ fun ChatMessageNerdLine(
     color: Color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
 ) {
     val settings = LocalSettings.current.displaySetting
+    val toaster = LocalToaster.current
+    val usage = message.usage
+    val latestUsage = message.lastRequestUsage ?: usage
 
     ProvideTextStyle(MaterialTheme.typography.labelSmall.copy(color = color)) {
         CompositionLocalProvider(LocalContentColor provides color) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 itemVerticalAlignment = Alignment.CenterVertically,
-                modifier = modifier.padding(horizontal = 4.dp),
+                modifier = modifier
+                    .clickable(
+                        enabled = settings.showTokenUsage && usage != null,
+                        onClickLabel = "Show latest request token usage",
+                    ) {
+                        latestUsage?.let { latest ->
+                            toaster.show(
+                                message = buildString {
+                                    appendLine("Latest request tokens")
+                                    append("Input: ${latest.promptTokens}")
+                                    if (latest.cachedTokens > 0) {
+                                        append(" (${latest.cachedTokens} cached)")
+                                    }
+                                    append(" · Output: ${latest.completionTokens}")
+                                },
+                                duration = 5.seconds,
+                            )
+                        }
+                    }
+                    .padding(horizontal = 4.dp),
             ) {
-                val usage = message.usage
                 if (settings.showTokenUsage && usage != null) {
                     // Input tokens
                     StatsItem(
