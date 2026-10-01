@@ -8,6 +8,38 @@ import org.junit.Test
 
 class ChatMessageCotTest {
     @Test
+    fun `successful chart separates commentary from subsequent thinking steps`() {
+        val commentary = UIMessagePart.Text("Plotting", OpenAIMessageMetadata(phase = "commentary").toMetadata())
+        val chart = UIMessagePart.Tool(
+            toolCallId = "call_chart",
+            toolName = CHART_DISPLAY_TOOL_NAME,
+            input = "{}",
+            output = listOf(UIMessagePart.Text("""{"success":true}""")),
+        )
+        val pendingChart = UIMessagePart.Tool("call_pending", CHART_DISPLAY_TOOL_NAME, "{}")
+        val failedChart = UIMessagePart.Tool(
+            toolCallId = "call_failed",
+            toolName = CHART_DISPLAY_TOOL_NAME,
+            input = "{}",
+            output = listOf(UIMessagePart.Text("""{"success":false}""")),
+        )
+        val answer = UIMessagePart.Text("Answer")
+
+        assertEquals(
+            listOf(
+                MessagePartBlock.ThinkingBlock(listOf(ThinkingStep.CommentaryStep(commentary))),
+                MessagePartBlock.ChartBlock(chart, 1),
+                MessagePartBlock.ThinkingBlock(listOf(
+                    ThinkingStep.ToolStep(pendingChart),
+                    ThinkingStep.ToolStep(failedChart),
+                )),
+                MessagePartBlock.ContentBlock(answer, 4),
+            ),
+            listOf(commentary, chart, pendingChart, failedChart, answer).groupMessageParts(),
+        )
+    }
+
+    @Test
     fun `commentary joins reasoning and tools while the final answer stays content`() {
         val reasoning = UIMessagePart.Reasoning("Thinking")
         val commentary = UIMessagePart.Text("Checking", OpenAIMessageMetadata(phase = "commentary").toMetadata())

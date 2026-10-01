@@ -45,6 +45,11 @@ class GoogleThinkingConfigTest {
     }
 
     @Test
+    fun `thinking off uses upstream minimal level for Gemini 4`() {
+        assertEquals(levelConfig("minimal"), thinkingConfig("gemini-4-flash"))
+    }
+
+    @Test
     fun `explicit and automatic thinking levels are preserved`() {
         listOf(
             ReasoningLevel.LOW to "low",
