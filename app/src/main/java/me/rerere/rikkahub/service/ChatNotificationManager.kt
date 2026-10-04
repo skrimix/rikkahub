@@ -30,6 +30,7 @@ import kotlin.uuid.Uuid
 // Live Update 通知节流间隔：流式输出每个chunk都会触发一次更新，
 // notify() 是 binder IPC 且系统本身会对高频更新限流，必须在应用侧节流
 private const val LIVE_UPDATE_NOTIFICATION_THROTTLE_MS = 1000L
+private const val GENERATION_DONE_NOTIFICATION_ID = 1
 
 /**
  * 订阅 [AppEventBus] 上的聊天生成事件，负责后台生成相关的系统通知
@@ -50,7 +51,11 @@ class ChatNotificationManager(
             ProcessLifecycleOwner.get().lifecycle.addObserver(
                 LifecycleEventObserver { _, event ->
                     when (event) {
-                        Lifecycle.Event.ON_START -> isForeground.value = true
+                        Lifecycle.Event.ON_START -> {
+                            isForeground.value = true
+                            // 回到应用后，完成通知已无意义
+                            context.cancelNotification(GENERATION_DONE_NOTIFICATION_ID)
+                        }
                         Lifecycle.Event.ON_STOP -> isForeground.value = false
                         else -> {}
                     }
@@ -98,7 +103,7 @@ class ChatNotificationManager(
     ) {
         context.sendNotification(
             channelId = CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID,
-            notificationId = 1
+            notificationId = GENERATION_DONE_NOTIFICATION_ID
         ) {
             title = senderName
             content = contentPreview
