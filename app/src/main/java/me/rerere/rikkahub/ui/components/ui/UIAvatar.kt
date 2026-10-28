@@ -45,6 +45,8 @@ import java.security.MessageDigest
 import kotlin.math.abs
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -97,10 +99,12 @@ fun UIAvatar(
     modifier: Modifier = Modifier,
     loading: Boolean = false,
     shape: Shape = rememberAvatarShape(loading),
+    showEditIcon: Boolean = true,
     onUpdate: ((Avatar) -> Unit)? = null,
     onClick: (() -> Unit)? = null
 ) {
     val filesManager: FilesManager = koinInject()
+    val changeAvatarLabel = stringResource(R.string.avatar_change_avatar)
     var showPickOption by remember { mutableStateOf(false) }
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showUrlInput by remember { mutableStateOf(false) }
@@ -129,7 +133,13 @@ fun UIAvatar(
     Box(modifier = modifier.then(Modifier.size(32.dp))) {
         Surface(
             shape = shape,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics {
+                    if (onUpdate != null) {
+                        contentDescription = changeAvatarLabel
+                    }
+                },
             onClick = {
                 onClick?.invoke()
                 if (onUpdate != null) showPickOption = true
@@ -176,7 +186,7 @@ fun UIAvatar(
         }
 
         // Show edit icon when editable
-        if (onUpdate != null) {
+        if (onUpdate != null && showEditIcon) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

@@ -51,6 +51,7 @@ import me.rerere.hugeicons.stroke.Book01
 import me.rerere.hugeicons.stroke.Book03
 import me.rerere.hugeicons.stroke.Bookshelf01
 import me.rerere.hugeicons.stroke.Brain02
+import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.Clapping01
 import me.rerere.hugeicons.stroke.Database02
 import me.rerere.hugeicons.stroke.GlobalSearch
@@ -68,6 +69,7 @@ import me.rerere.hugeicons.stroke.Share04
 import me.rerere.hugeicons.stroke.SmartPhone01
 import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.hugeicons.stroke.Tiktok
+import me.rerere.hugeicons.stroke.TransactionHistory
 import me.rerere.hugeicons.stroke.WavingHand01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -273,6 +275,18 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                 CardGroup(
                     title = { Text(stringResource(R.string.setting_page_data_settings)) },
                 ) {
+                    item(
+                        onClick = { navController.navigate(Screen.History) },
+                        leadingContent = { CardGroupIcon(HugeIcons.TransactionHistory, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text("Manage chats across all folders for the current assistant") },
+                        headlineContent = { Text(stringResource(R.string.history_page_title)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.Stats) },
+                        leadingContent = { CardGroupIcon(HugeIcons.ChartColumn, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text("Chat activity and token usage") },
+                        headlineContent = { Text(stringResource(R.string.stats_page_title)) },
+                    )
                     item(
                         onClick = { navController.navigate(Screen.Backup) },
                         leadingContent = { CardGroupIcon(HugeIcons.Database02, containerColor = containerColor, contentColor = contentColor) },
