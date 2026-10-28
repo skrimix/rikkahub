@@ -8,7 +8,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
-import me.rerere.ai.provider.ClaudePromptCacheTtl
 import me.rerere.ai.ui.ClaudeReasoningMetadata
 import me.rerere.ai.ui.ServerToolMetadata
 import me.rerere.ai.ui.ServerToolProtocol
@@ -43,14 +42,9 @@ class ClaudeRequestMessageTest {
 
     // Helper to invoke private buildMessages method via reflection
     private fun invokeBuildMessages(messages: List<UIMessage>): JsonArray {
-        val method = ClaudeProvider::class.java.getDeclaredMethod(
-            "buildMessages",
-            List::class.java,
-            Boolean::class.javaPrimitiveType,
-            ClaudePromptCacheTtl::class.java
-        )
+        val method = ClaudeProvider::class.java.getDeclaredMethod("buildMessages", List::class.java)
         method.isAccessible = true
-        return method.invoke(provider, messages, false, ClaudePromptCacheTtl.FIVE_MINUTES) as JsonArray
+        return method.invoke(provider, messages) as JsonArray
     }
 
     @Test
@@ -151,8 +145,10 @@ class ClaudeRequestMessageTest {
         val nextMsg = result[assistantWithToolUseIndex + 1].jsonObject
         assertEquals("user", nextMsg["role"]?.jsonPrimitive?.content)
         val nextContent = nextMsg["content"]?.jsonArray
-        assertTrue("Next message should have tool_result",
-            nextContent?.any { it.jsonObject["type"]?.jsonPrimitive?.content == "tool_result" } == true)
+        assertTrue(
+            "Next message should have tool_result",
+            nextContent?.any { it.jsonObject["type"]?.jsonPrimitive?.content == "tool_result" } == true
+        )
     }
 
     @Test
@@ -192,8 +188,10 @@ class ClaudeRequestMessageTest {
         val thinkingBlock = content.find {
             it.jsonObject["type"]?.jsonPrimitive?.content == "thinking"
         }?.jsonObject
-        assertEquals("Let me think about this...",
-            thinkingBlock?.get("thinking")?.jsonPrimitive?.content)
+        assertEquals(
+            "Let me think about this...",
+            thinkingBlock?.get("thinking")?.jsonPrimitive?.content
+        )
     }
 
     @Test
@@ -348,8 +346,10 @@ class ClaudeRequestMessageTest {
                 val nextMsg = result[i + 1].jsonObject
                 assertEquals("user", nextMsg["role"]?.jsonPrimitive?.content)
                 val nextContent = nextMsg["content"]?.jsonArray
-                assertTrue("Should have tool_result in next message",
-                    nextContent?.any { it.jsonObject["type"]?.jsonPrimitive?.content == "tool_result" } == true)
+                assertTrue(
+                    "Should have tool_result in next message",
+                    nextContent?.any { it.jsonObject["type"]?.jsonPrimitive?.content == "tool_result" } == true
+                )
             }
         }
     }
@@ -398,8 +398,10 @@ class ClaudeRequestMessageTest {
             }
         }
 
-        assertTrue("Should have assistant with 3 parallel tool_use blocks",
-            foundAssistantWithMultipleTools)
+        assertTrue(
+            "Should have assistant with 3 parallel tool_use blocks",
+            foundAssistantWithMultipleTools
+        )
 
         // Verify corresponding tool_result blocks in user message
         var foundUserWithMultipleResults = false
@@ -418,8 +420,10 @@ class ClaudeRequestMessageTest {
             }
         }
 
-        assertTrue("Should have user with 3 tool_result blocks",
-            foundUserWithMultipleResults)
+        assertTrue(
+            "Should have user with 3 tool_result blocks",
+            foundUserWithMultipleResults
+        )
     }
 
     @Test
