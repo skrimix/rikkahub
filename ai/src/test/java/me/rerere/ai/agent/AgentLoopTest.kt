@@ -346,6 +346,54 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `steering after tools ends the run before the model sees the results`() = runTest {
+        val steeringHooks = SteeringHooks(hooks, steering = listOf(UIMessage.user("wait")))
+        provider.stream {
+            toolCall("call-1", "search")
+            finish()
+        }
+
+        val finished = runToEnd(request(tools = listOf(tool("search"))), steeringHooks).finished()
+
+        assertEquals(AgentFinishReason.Steered(steeringHooks.steering), finished.reason)
+        assertTrue(finished.message.tool("call-1").isExecuted)
+        assertEquals(1, provider.requests.size)
+        assertEquals(listOf(false), steeringHooks.finals)
+    }
+
+    @Test
+    fun `steering is checked one last time when the model stops calling tools`() = runTest {
+        val steeringHooks = SteeringHooks(hooks)
+        provider.stream {
+            toolCall("call-1", "search")
+            finish()
+        }
+        provider.stream {
+            text("done")
+            finish()
+        }
+
+        val finished = runToEnd(request(tools = listOf(tool("search"))), steeringHooks).finished()
+
+        assertEquals(AgentFinishReason.Completed, finished.reason)
+        assertEquals(listOf(false, true), steeringHooks.finals)
+    }
+
+    @Test
+    fun `steering on the final step of the limit is still taken`() = runTest {
+        val steeringHooks = SteeringHooks(hooks, steering = listOf(UIMessage.user("wait")))
+        provider.stream {
+            toolCall("call-1", "search")
+            finish()
+        }
+
+        val finished = runToEnd(request(tools = listOf(tool("search")), maxSteps = 1), steeringHooks).finished()
+
+        assertEquals(AgentFinishReason.Steered(steeringHooks.steering), finished.reason)
+        assertEquals(listOf(true), steeringHooks.finals)
+    }
+
+    @Test
     fun `finishStep only has to process the parts produced by the current step`() = runTest {
         provider.stream {
             text("checking")
@@ -494,6 +542,19 @@ class AgentLoopTest {
             .finished().message
 
         assertEquals(listOf("before!", "after!"), message.texts())
+    }
+}
+
+/** Returns [steering] on the first call and records each call's `final` flag */
+private class SteeringHooks(
+    delegate: AgentHooks,
+    val steering: List<UIMessage> = emptyList(),
+) : AgentHooks by delegate {
+    val finals = mutableListOf<Boolean>()
+
+    override suspend fun takeSteeringMessages(final: Boolean): List<UIMessage> {
+        finals += final
+        return if (finals.size == 1) steering else emptyList()
     }
 }
 

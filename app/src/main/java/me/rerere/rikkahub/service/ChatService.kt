@@ -188,6 +188,8 @@ class ChatService(
         if (cause != null && cause !is CancellationException) session.messageQueue.pause()
         if (session.state.value.isAwaitingToolApproval) {
             session.messageQueue.failReplyWaiters(context.getString(R.string.chat_page_voice_tool_approval))
+        } else {
+            session.messageQueue.closeSteering()
         }
         appScope.launch { dispatchNextQueuedMessage(session.id) }
     }
@@ -310,7 +312,7 @@ class ChatService(
     // 只删上次落库时引用、这次落库不再引用的文件；只在内存里出现过的文件宁可漏删也不误删
     private fun deleteUnreferencedFiles(previous: Conversation, current: Conversation) {
         val session = sessionManager.get(current.id)
-        val queuedFiles = (session?.messageQueue?.state?.value?.messages.orEmpty() +
+        val queuedFiles = (session?.messageQueue?.pendingMessages().orEmpty() +
             listOfNotNull(session?.submittingMessage))
             .flatMap { it.parts }.localFileUrls().map { it.toUri() }
         val retainedFiles = (current.files + queuedFiles).toSet()
@@ -358,7 +360,7 @@ class ChatService(
                     previous = previous,
                     conversations = currentSessions.map { it.state.value },
                     pendingMessages = currentSessions.flatMap {
-                        it.messageQueue.state.value.messages + listOfNotNull(it.submittingMessage)
+                        it.messageQueue.pendingMessages() + listOfNotNull(it.submittingMessage)
                     },
                 ) - persistedReferences
                 if (unusedFiles.isNotEmpty()) {
@@ -381,8 +383,12 @@ class ChatService(
         if (content.isEmptyInputMessage()) return
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
-            if (session.messageQueue.state.value.messages.isEmpty()) session.messageQueue.resume()
-            session.messageQueue.enqueue(content, answer)
+            if (session.messageQueue.pendingMessages().isEmpty()) session.messageQueue.resume()
+            session.messageQueue.enqueue(
+                parts = content,
+                answer = answer,
+                delivery = settingsStore.settingsFlow.value.displaySetting.messageDelivery,
+            )
             dispatchNextQueuedMessage(conversationId)
         }
     }
@@ -393,13 +399,13 @@ class ChatService(
         val reply = CompletableDeferred<String?>()
         synchronized(session) {
             check(text.isNotBlank()) { context.getString(R.string.chat_page_voice_empty) }
-            check(!session.messageQueue.state.value.paused || session.messageQueue.state.value.messages.isEmpty()) {
+            check(!session.messageQueue.state.value.paused || session.messageQueue.pendingMessages().isEmpty()) {
                 context.getString(R.string.chat_page_voice_resume_queue)
             }
             check(!session.state.value.isAwaitingToolApproval) {
                 context.getString(R.string.chat_page_voice_tools_before_resume)
             }
-            if (session.messageQueue.state.value.messages.isEmpty()) session.messageQueue.resume()
+            if (session.messageQueue.pendingMessages().isEmpty()) session.messageQueue.resume()
             session.messageQueue.enqueue(listOf(UIMessagePart.Text(text)), reply = reply)
             dispatchNextQueuedMessage(conversationId)
         }
@@ -623,36 +629,53 @@ class ChatService(
             }
             warnIfToolsUnavailable(turn, conversationId)
 
-            val (request, hooks) = requestFactory.createAgent(turn, history, session.processingStatus)
+            // Steering only applies at the end of the conversation, not when regenerating an older reply.
+            val steerable = regenerateNodeId == null
+            if (steerable) session.messageQueue.openSteering()
             var finishReason: AgentFinishReason? = null
             try {
-                runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
-                    when (event) {
-                        is AgentEvent.MessageUpdated -> {
-                            // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
-                            session.processingStatus.value = null
-                            session.update { it.upsertMessage(replyNodeId, event.message) }
-                            session.replyMessageId.value = event.message.id
-                            // 通知等边缘副作用由 ChatNotificationManager 消费；
-                            // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
-                            appEventBus.tryEmit(
-                                AppEvent.ChatGenerationUpdate(conversationId, event.message, senderName)
-                            )
-                        }
+                var messages = history
+                var nodeId = replyNodeId
+                do {
+                    val (request, hooks) = requestFactory.createAgent(turn, messages, session.processingStatus) { final ->
+                        if (steerable) claimSteeringMessages(session, turn.assistant, final) else emptyList()
+                    }
+                    runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
+                        when (event) {
+                            is AgentEvent.MessageUpdated -> {
+                                // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
+                                session.processingStatus.value = null
+                                session.update { it.upsertMessage(nodeId, event.message) }
+                                session.replyMessageId.value = event.message.id
+                                // 通知等边缘副作用由 ChatNotificationManager 消费；
+                                // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
+                                appEventBus.tryEmit(
+                                    AppEvent.ChatGenerationUpdate(conversationId, event.message, senderName)
+                                )
+                            }
 
-                        is AgentEvent.Retrying -> {
-                            logRetry(event.attempt)
-                            session.processingStatus.value = retryStatus(event.attempt)
-                        }
+                            is AgentEvent.Retrying -> {
+                                logRetry(event.attempt)
+                                session.processingStatus.value = retryStatus(event.attempt)
+                            }
 
-                        is AgentEvent.Finished -> {
-                            Log.i(TAG, "runTurn: finished (${event.reason})")
-                            finishReason = event.reason
+                            is AgentEvent.Finished -> {
+                                Log.i(TAG, "runTurn: finished (${event.reason})")
+                                finishReason = event.reason
+                            }
                         }
                     }
-                }
+                    // The model answers steering in a new assistant message after it
+                    val steering = (finishReason as? AgentFinishReason.Steered)?.messages
+                    if (steering != null) {
+                        messages = appendSteeringMessages(session, steering).currentMessages
+                        nodeId = Uuid.random()
+                        session.replyMessageId.value = null
+                    }
+                } while (steering != null)
             } finally {
                 withContext(NonCancellable) {
+                    session.messageQueue.releaseClaimedSteering()
                     session.processingStatus.value = null
                     // 可能被取消了，或者意外结束，兜底保存
                     val finished = session.finishGeneration()
@@ -696,6 +719,31 @@ class ChatService(
             Logging.log(TAG, "runTurn: $e")
             Logging.log(TAG, e.stackTraceToString())
             return TurnResult.Failed
+        }
+    }
+
+    private fun claimSteeringMessages(
+        session: ConversationSession,
+        assistant: Assistant,
+        final: Boolean,
+    ): List<UIMessage> = session.messageQueue.claimSteering(closeIfEmpty = final).map { queued ->
+        UIMessage(
+            id = queued.id,
+            role = MessageRole.USER,
+            parts = queued.parts.replaceUserRegexes(assistant),
+        )
+    }
+
+    // Claimed input stays referenced by the queue until it is saved, so stopping meanwhile can't lose it
+    private suspend fun appendSteeringMessages(
+        session: ConversationSession,
+        messages: List<UIMessage>,
+    ): Conversation = withContext(NonCancellable) {
+        session.update {
+            it.copy(messageNodes = it.messageNodes + messages.map { message -> message.toMessageNode() })
+        }.also {
+            session.flush()
+            session.messageQueue.acknowledgeSteering(messages.mapTo(HashSet()) { it.id })
         }
     }
 

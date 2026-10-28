@@ -127,6 +127,7 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?>,
+        takeSteeringMessages: suspend (final: Boolean) -> List<UIMessage> = { emptyList() },
     ): Pair<AgentRequest, AgentHooks> {
         val request = AgentRequest(
             provider = usageRecorder.wrap(
@@ -156,6 +157,8 @@ class ChatRequestFactory(
                         .visualTransforms(outputTransformers, context, turn.model, turn.assistant, turn.settings)
                         .onGenerationFinish(outputTransformers, context, turn.model, turn.assistant, turn.settings)
                 }
+
+            override suspend fun takeSteeringMessages(final: Boolean) = takeSteeringMessages(final)
         }
         return request to hooks
     }

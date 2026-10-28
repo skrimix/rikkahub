@@ -54,7 +54,11 @@ internal class AgentLoop(
                 val pending = requestApprovals(current)
                 if (pending.isNotEmpty()) return finish(AgentFinishReason.AwaitingApproval(pending))
                 executeTools()
+                val steering = hooks.takeSteeringMessages(final = steps == request.maxSteps)
+                if (steering.isNotEmpty()) return finish(AgentFinishReason.Steered(steering))
             } else if (current != null && steps > 0) {
+                val steering = hooks.takeSteeringMessages(final = true)
+                if (steering.isNotEmpty()) return finish(AgentFinishReason.Steered(steering))
                 return finish(AgentFinishReason.Completed)
             }
             if (steps == request.maxSteps) return finish(AgentFinishReason.StepLimitReached)

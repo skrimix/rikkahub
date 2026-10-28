@@ -47,6 +47,16 @@ interface AgentHooks {
      * 下标 [newPartsFrom] 及之后的 part 是这一步新生成的；之前的来自更早的步骤，已经处理过一次。
      */
     suspend fun finishStep(message: UIMessage, newPartsFrom: Int): UIMessage = message
+
+    /**
+     * Called once tool results are in and before the model sees them, and again when the model
+     * stops calling tools. Returning messages ends the run with [AgentFinishReason.Steered], so the
+     * caller can persist them and continue in a new run.
+     *
+     * [final] is true when the run will end anyway (completed or step limit reached); the caller
+     * should stop accepting steering if there is nothing to take.
+     */
+    suspend fun takeSteeringMessages(final: Boolean): List<UIMessage> = emptyList()
 }
 
 data class StepRequest(
@@ -74,6 +84,12 @@ sealed interface AgentFinishReason {
 
     /** 达到 [AgentRequest.maxSteps]，最后一步调用的工具已经执行，但模型还没有回复 */
     data object StepLimitReached : AgentFinishReason
+
+    /**
+     * The user sent [messages] mid-run. Tools called so far have been executed; append the messages
+     * after this assistant message and start a new run to let the model respond to them.
+     */
+    data class Steered(val messages: List<UIMessage>) : AgentFinishReason
 }
 
 /**
