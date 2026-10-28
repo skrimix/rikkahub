@@ -10,7 +10,10 @@ data class TokenUsage(
     val totalTokens: Int = 0,
 )
 
-/** Merges cumulative usage updates from the same request. */
+/**
+ * 合并同一次请求内的 usage 快照：各字段取最新的非零值。
+ * 跨请求（如多轮工具调用的各个步骤）累计请用 [sum]。
+ */
 fun TokenUsage?.merge(other: TokenUsage): TokenUsage {
     val promptTokens = if (other.promptTokens > 0) {
         other.promptTokens
@@ -36,18 +39,16 @@ fun TokenUsage?.merge(other: TokenUsage): TokenUsage {
     )
 }
 
-/** Adds usage from separate requests, preserving missing usage as null. */
+/**
+ * 累加多次请求的 usage，每次请求都会按完整上下文计费，因此 prompt 也直接相加。
+ */
 fun TokenUsage?.sum(other: TokenUsage?): TokenUsage? {
-    if (this == null && other == null) return null
+    if (this == null) return other
+    if (other == null) return this
     return TokenUsage(
-        promptTokens = (this?.promptTokens ?: 0) + (other?.promptTokens ?: 0),
-        completionTokens = (this?.completionTokens ?: 0) + (other?.completionTokens ?: 0),
-        cachedTokens = (this?.cachedTokens ?: 0) + (other?.cachedTokens ?: 0),
-        totalTokens = this.totalOrInferred() + other.totalOrInferred(),
+        promptTokens = promptTokens + other.promptTokens,
+        completionTokens = completionTokens + other.completionTokens,
+        cachedTokens = cachedTokens + other.cachedTokens,
+        totalTokens = totalTokens + other.totalTokens,
     )
-}
-
-private fun TokenUsage?.totalOrInferred(): Int {
-    if (this == null) return 0
-    return totalTokens.takeIf { it > 0 } ?: (promptTokens + completionTokens)
 }

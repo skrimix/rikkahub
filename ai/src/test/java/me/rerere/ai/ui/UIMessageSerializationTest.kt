@@ -1,38 +1,14 @@
 package me.rerere.ai.ui
 
 import kotlinx.serialization.json.Json
-import me.rerere.ai.core.TokenUsage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.uuid.Uuid
 
 class UIMessageSerializationTest {
-
-    @Test
-    fun `total and latest request usage survive serialization`() {
-        val message = UIMessage.assistant("done").copy(
-            usage = TokenUsage(150, 25, 80, 175),
-            lastRequestUsage = TokenUsage(50, 5, 0, 55),
-        )
-
-        val decoded = Json.decodeFromString<UIMessage>(Json.encodeToString(message))
-
-        assertEquals(message.usage, decoded.usage)
-        assertEquals(message.lastRequestUsage, decoded.lastRequestUsage)
-    }
-
-    @Test
-    fun `legacy messages can omit latest request usage`() {
-        val message = UIMessage.assistant("old").copy(usage = TokenUsage(50, 5, 0, 55))
-        val encoded = Json.encodeToString(message)
-
-        assertFalse(encoded.contains("lastRequestUsage"))
-        val decoded = Json.decodeFromString<UIMessage>(encoded)
-        assertEquals(message.usage, decoded.usage)
-        assertNull(decoded.lastRequestUsage)
-    }
 
     @Test
     fun `synthetic marker is not serialized`() {
@@ -44,5 +20,43 @@ class UIMessageSerializationTest {
         assertTrue(message.isSynthetic)
         assertFalse(encoded.contains("isSynthetic"))
         assertFalse(decoded.isSynthetic)
+    }
+
+    @Test
+    fun `context checkpoint marker survives serialization`() {
+        val message = UIMessage.user("summary").copy(isContextCheckpoint = true)
+
+        val decoded = Json.decodeFromString<UIMessage>(Json.encodeToString(message))
+
+        assertTrue(decoded.isContextCheckpoint)
+    }
+
+    @Test
+    fun `messages stored before checkpoints existed decode as ordinary messages`() {
+        val legacy = """{"id":"00000000-0000-0000-0000-000000000001","role":"user","parts":[]}"""
+
+        assertFalse(Json.decodeFromString<UIMessage>(legacy).isContextCheckpoint)
+    }
+
+    @Test
+    fun `model snapshot survives serialization`() {
+        val modelId = Uuid.random()
+        val message = UIMessage.assistant("hi").copy(
+            modelId = modelId,
+            modelSnapshot = ModelSnapshot(modelId = "gpt-test", displayName = "GPT Test"),
+        )
+
+        val shown = Json.decodeFromString<UIMessage>(Json.encodeToString(message)).snapshotModel()
+
+        assertEquals(modelId, shown?.id)
+        assertEquals("gpt-test", shown?.modelId)
+        assertEquals("GPT Test", shown?.displayName)
+    }
+
+    @Test
+    fun `messages stored before model snapshots existed decode without one`() {
+        val legacy = """{"role":"assistant","parts":[],"modelId":"00000000-0000-0000-0000-000000000001"}"""
+
+        assertNull(Json.decodeFromString<UIMessage>(legacy).snapshotModel())
     }
 }
