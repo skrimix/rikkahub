@@ -709,8 +709,8 @@ class ConversationSessionTest {
         val session = ConversationSession(id, Conversation.ofId(id), scope, FakeConversationStore(), {})
         try {
             assertFalse(session.isInUse)
-            session.messageQueue.enqueue(listOf(UIMessagePart.Text("next")))
-            session.messageQueue.pause()
+            session.inbox.enqueue(listOf(UIMessagePart.Text("next")))
+            session.inbox.pause()
             assertTrue(session.isInUse)
         } finally {
             session.cleanup()
@@ -721,14 +721,14 @@ class ConversationSessionTest {
     @Test
     fun `claimed input retains its session until saved`() {
         val session = createSession()
-        session.messageQueue.openSteering()
-        session.messageQueue.enqueue(
+        session.inbox.openSteering()
+        session.inbox.enqueue(
             listOf(UIMessagePart.Text("pending")),
             delivery = MessageDelivery.STEER,
         )
-        val claimed = session.messageQueue.claimSteering(closeIfEmpty = false)
+        val claimed = session.inbox.claimSteering(closeIfEmpty = false)
         assertTrue(session.isInUse)
-        session.messageQueue.acknowledgeSteering(claimed.mapTo(mutableSetOf()) { it.id })
+        session.inbox.acknowledgeSteering(claimed.mapTo(mutableSetOf()) { it.id })
         assertFalse(session.isInUse)
     }
 

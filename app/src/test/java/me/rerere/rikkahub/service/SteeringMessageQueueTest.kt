@@ -23,9 +23,9 @@ class SteeringMessageQueueTest {
 
     @Test
     fun `steering is consumed in order only while a turn accepts it`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.enqueue(text("idle"), delivery = MessageDelivery.STEER)
-        assertEquals(MessageDelivery.NEXT_TURN, queue.takeNext()!!.delivery)
+        assertEquals(MessageDelivery.NEXT_TURN, queue.nextMessage()!!.delivery)
         queue.openSteering()
         queue.enqueue(text("first"), delivery = MessageDelivery.STEER)
         queue.enqueue(text("second"), delivery = MessageDelivery.STEER)
@@ -40,16 +40,16 @@ class SteeringMessageQueueTest {
 
     @Test
     fun `next turn input is not consumed at a steering boundary`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         queue.enqueue(text("next"), delivery = MessageDelivery.NEXT_TURN)
         assertTrue(queue.claimSteering(closeIfEmpty = false).isEmpty())
-        assertEquals(text("next"), queue.takeNext()!!.parts)
+        assertEquals(text("next"), queue.nextMessage()!!.parts)
     }
 
     @Test
     fun `switching preference cannot jump past earlier queued input`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         queue.enqueue(text("first"), delivery = MessageDelivery.STEER)
         queue.enqueue(text("second"), delivery = MessageDelivery.NEXT_TURN)
@@ -62,17 +62,17 @@ class SteeringMessageQueueTest {
 
     @Test
     fun `messages sent after the final drain fall back to the next turn`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         assertTrue(queue.claimSteering(closeIfEmpty = true).isEmpty())
         queue.enqueue(text("late"), delivery = MessageDelivery.STEER)
         assertTrue(queue.claimSteering(closeIfEmpty = false).isEmpty())
-        assertEquals(MessageDelivery.NEXT_TURN, queue.takeNext()!!.delivery)
+        assertEquals(MessageDelivery.NEXT_TURN, queue.nextMessage()!!.delivery)
     }
 
     @Test
     fun `editing steering blocks consumption until the edit finishes`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         queue.enqueue(text("first"), delivery = MessageDelivery.STEER)
         queue.enqueue(text("second"), delivery = MessageDelivery.STEER)
@@ -86,7 +86,7 @@ class SteeringMessageQueueTest {
 
     @Test
     fun `a turn finishing during an edit retains both messages for later`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         queue.enqueue(text("first"), delivery = MessageDelivery.STEER)
         queue.enqueue(text("second"), delivery = MessageDelivery.STEER)
@@ -94,16 +94,16 @@ class SteeringMessageQueueTest {
         queue.beginEdit(id)
 
         assertTrue(queue.claimSteering(closeIfEmpty = true).isEmpty())
-        assertNull(queue.takeNext())
+        assertNull(queue.nextMessage())
         queue.finishEdit(id, text("edited"))
         assertEquals(MessageDelivery.NEXT_TURN, queue.state.value.messages.first().delivery)
-        assertEquals(text("edited"), queue.takeNext()!!.parts)
-        assertEquals(text("second"), queue.takeNext()!!.parts)
+        assertEquals(text("edited"), queue.nextMessage()!!.parts)
+        assertEquals(text("second"), queue.nextMessage()!!.parts)
     }
 
     @Test
     fun `claimed messages cannot be edited or removed and release is idempotent`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         queue.enqueue(text("claimed"), delivery = MessageDelivery.STEER)
         val claimed = queue.claimSteering(false).single()
@@ -118,7 +118,7 @@ class SteeringMessageQueueTest {
 
     @Test
     fun `stop retains unsaved and pending input but never replays saved input`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         queue.enqueue(text("saved"), delivery = MessageDelivery.STEER)
         val saved = queue.claimSteering(false).single()
@@ -135,30 +135,30 @@ class SteeringMessageQueueTest {
         assertTrue(queue.claimSteering(false).isEmpty())
         assertEquals(listOf(attachment, text("later")), queue.pendingMessages().map { it.parts })
         queue.resume()
-        val resumed = queue.takeNext()!!
+        val resumed = queue.nextMessage()!!
         assertEquals(unsaved.id, resumed.id)
         assertEquals(MessageDelivery.NEXT_TURN, resumed.delivery)
         assertEquals(attachment, resumed.parts)
-        assertEquals(text("later"), queue.takeNext()!!.parts)
+        assertEquals(text("later"), queue.nextMessage()!!.parts)
         assertNull(queue.takeNext())
     }
 
     @Test
     fun `voice and send without answer always wait for a separate turn`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         val reply = CompletableDeferred<String?>()
         queue.openSteering()
         queue.enqueue(text("voice"), reply = reply, delivery = MessageDelivery.STEER)
         queue.enqueue(text("no answer"), answer = false, delivery = MessageDelivery.STEER)
         assertTrue(queue.claimSteering(false).isEmpty())
-        assertTrue(queue.takeNext()!!.reply === reply)
+        assertTrue(queue.nextMessage()!!.reply === reply)
         assertFalse(reply.isCompleted)
-        assertFalse(queue.takeNext()!!.answer)
+        assertFalse(queue.nextMessage()!!.answer)
     }
 
     @Test
     fun `new input and editing cannot resume stopped steering`() {
-        val queue = MessageQueue()
+        val queue = ConversationInbox()
         queue.openSteering()
         queue.enqueue(text("keep"), delivery = MessageDelivery.STEER)
         val id = queue.state.value.messages.single().id
@@ -170,5 +170,18 @@ class SteeringMessageQueueTest {
         assertTrue(queue.state.value.paused)
         assertTrue(queue.claimSteering(false).isEmpty())
         assertNull(queue.takeNext())
+    }
+
+    @Test
+    fun `runtime notices coexist with steering without blocking or dropping each other`() {
+        val queue = ConversationInbox()
+        val notice = UIMessagePart.Notice(title = "shell", text = "<notice>done</notice>")
+        queue.openSteering()
+        queue.post("shell-1", notice)
+        queue.enqueue(text("steer"), delivery = MessageDelivery.STEER)
+
+        val claimed = queue.claimSteering(closeIfEmpty = false)
+        assertEquals(listOf(text("steer")), claimed.map { it.parts })
+        assertEquals(listOf(notice), queue.takeNotices())
     }
 }

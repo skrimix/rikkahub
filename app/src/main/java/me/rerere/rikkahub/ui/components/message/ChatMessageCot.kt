@@ -10,7 +10,7 @@ import me.rerere.rikkahub.utils.JsonInstant
 
 internal const val CHART_DISPLAY_TOOL_NAME = "chart_display"
 
-/** A reasoning, commentary or tool step displayed before the answer. */
+/** A reasoning, commentary, tool, or runtime notice step displayed before the answer. */
 sealed interface ThinkingStep {
     data class CommentaryStep(val text: UIMessagePart.Text) : ThinkingStep
 
@@ -24,6 +24,10 @@ sealed interface ThinkingStep {
 
     data class ServerToolStep(
         val tool: UIMessagePart.ServerTool,
+    ) : ThinkingStep
+
+    data class NoticeStep(
+        val notice: UIMessagePart.Notice,
     ) : ThinkingStep
 }
 
@@ -39,8 +43,8 @@ sealed interface MessagePartBlock {
 }
 
 /**
- * Groups consecutive reasoning, commentary and tools while preserving content order.
- * Successful chart displays become content blocks; pending or failed calls remain tool steps.
+ * Groups consecutive reasoning, commentary, tools, and notices while preserving content order.
+ * Successful chart displays become chart blocks; pending or failed calls remain tool steps.
  */
 fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
     val result = mutableListOf<MessagePartBlock>()
@@ -79,6 +83,10 @@ fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
 
             is UIMessagePart.ServerTool -> {
                 currentThinkingSteps.add(ThinkingStep.ServerToolStep(part))
+            }
+
+            is UIMessagePart.Notice -> {
+                currentThinkingSteps.add(ThinkingStep.NoticeStep(part))
             }
 
             else -> {

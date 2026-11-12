@@ -8,11 +8,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.richtext.SelectableContent
 import me.rerere.rikkahub.ui.components.ui.ChainOfThoughtScope
 
 @Composable
 fun ChainOfThoughtScope.ChatMessageCommentaryStep(
     text: String,
+    streaming: Boolean = false,
     onClickCitation: (String) -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(true) }
@@ -27,6 +29,14 @@ fun ChainOfThoughtScope.ChatMessageCommentaryStep(
             )
         },
         contentVisible = expanded,
-        content = { MarkdownBlock(content = text, onClickCitation = onClickCitation) },
+        content = {
+            SelectableContent {
+                MarkdownBlock(
+                    content = text,
+                    streaming = streaming,
+                    onClickCitation = onClickCitation,
+                )
+            }
+        },
     )
 }
