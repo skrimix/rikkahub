@@ -59,10 +59,11 @@ fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
 
     this.fastForEachIndexed { index, part ->
         when (part) {
-            is UIMessagePart.Text -> {
-                if (part.isCommentary) {
-                    currentThinkingSteps.add(ThinkingStep.CommentaryStep(part))
-                } else {
+            is UIMessagePart.Text -> when {
+                // 只承载 thoughtSignature 等元数据的空文本不显示，也不打断思考块
+                part.text.isEmpty() -> Unit
+                part.isCommentary -> currentThinkingSteps.add(ThinkingStep.CommentaryStep(part))
+                else -> {
                     flushThinkingSteps()
                     result.add(MessagePartBlock.ContentBlock(part, index))
                 }

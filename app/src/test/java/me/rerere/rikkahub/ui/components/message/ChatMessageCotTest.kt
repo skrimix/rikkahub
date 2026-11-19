@@ -60,4 +60,23 @@ class ChatMessageCotTest {
             listOf(reasoning, commentary, tool, answer, legacy).groupMessageParts(),
         )
     }
+
+    @Test
+    fun `empty signature-only text part does not split thinking steps or render content`() {
+        val reasoning = UIMessagePart.Reasoning("Thinking")
+        val signatureOnly = UIMessagePart.Text("")
+        val commentary = UIMessagePart.Text("Checking", OpenAIMessageMetadata(phase = "commentary").toMetadata())
+        val answer = UIMessagePart.Text("Answer")
+
+        assertEquals(
+            listOf(
+                MessagePartBlock.ThinkingBlock(listOf(
+                    ThinkingStep.ReasoningStep(reasoning),
+                    ThinkingStep.CommentaryStep(commentary),
+                )),
+                MessagePartBlock.ContentBlock(answer, 3),
+            ),
+            listOf(reasoning, signatureOnly, commentary, answer).groupMessageParts(),
+        )
+    }
 }
