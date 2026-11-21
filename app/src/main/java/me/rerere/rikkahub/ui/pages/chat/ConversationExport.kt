@@ -121,6 +121,7 @@ import me.rerere.ui.charts.ChartSpec
 import me.rerere.ui.components.BitmapComposer
 import java.io.FileOutputStream
 import java.time.LocalDateTime
+import kotlinx.datetime.toJavaLocalDateTime
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.DurationUnit
 
@@ -399,7 +400,7 @@ private fun buildMarkdownExport(
 
     messages.filterNot { it.isNoticeOnly }.forEach { message ->
         val role = if (message.role == MessageRole.USER) "**User**" else "**Assistant**"
-        append("$role:\n\n")
+        append("$role · *${message.createdAt.toJavaLocalDateTime().toLocalString()}*:\n\n")
         message.parts.forEach { part ->
             when (part) {
                 is UIMessagePart.Text -> {
